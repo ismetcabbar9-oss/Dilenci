@@ -14,4 +14,12 @@
   https://sketchfab.com/3d-models/d53af0ad289a403598ee2cb41d84608b
   Lisans: CC BY 4.0
 
+## Müzik ve ses efektleri (OpenGameArt, CC0 – kamu malı)
+- **Gündüz müzikleri** — "Catmint" ve "Forget-me-not" by **Kistol** (https://opengameart.org/content/catmint, /content/forget-me-not)
+- **Gece müziği** — "Bluebonnet" by **Kistol** (https://opengameart.org/content/bluebonnet)
+- **Arayüz sesleri** — "Interface Sounds" by **Kenney** (https://opengameart.org/content/interface-sounds)
+- **Olay müzikleri** — "Cozy Puzzle Jingle & Result" by **MintoDog** (https://opengameart.org/content/cozy-puzzle-jingle-result)
+
+CC0 kredi zorunluluğu getirmez; yine de teşekkür amacıyla listelenmiştir.
+
 Not: CC BY lisansı gereği bu krediler oyun içindeki "Krediler" ekranında da gösterilmelidir.

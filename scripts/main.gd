@@ -371,6 +371,7 @@ func _build_ui() -> void:
 		["Mağaza", [
 			["Mağaza", _open_store],
 			["Günlük ödül", Store.claim_daily],
+			["Ayarlar", _open_settings],
 			["Yeni oyun", _confirm_reset],
 		]],
 	]
@@ -394,6 +395,32 @@ func _build_ui() -> void:
 	_select_tab(0)
 
 	_build_death_panel(layer)
+
+
+func _open_settings() -> void:
+	var w := AcceptDialog.new()
+	w.title = "Ayarlar"
+	w.ok_button_text = "Kapat"
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	w.add_child(box)
+	for item in [["Müzik", Audio.music_on, Audio.set_music], ["Ses efektleri", Audio.sfx_on, Audio.set_sfx]]:
+		var c := CheckButton.new()
+		c.text = item[0]
+		c.button_pressed = item[1]
+		c.add_theme_font_size_override("font_size", 26)
+		c.custom_minimum_size = Vector2(420, 70)
+		c.toggled.connect(item[2])
+		box.add_child(c)
+	var cr := _label(18)
+	cr.text = "Müzik: Kistol · Ses: Kenney, MintoDog (CC0)\n3D: Agor_, Stas_SayHallo, IsaacTheMaverick, Brynnnnn (CC BY 4.0)"
+	cr.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cr.custom_minimum_size.x = 420
+	box.add_child(cr)
+	w.confirmed.connect(w.queue_free)
+	w.canceled.connect(w.queue_free)
+	add_child(w)
+	w.popup_centered()
 
 
 func _select_tab(index: int) -> void:
@@ -834,6 +861,7 @@ func _button(text: String, font_size: int) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.add_theme_font_size_override("font_size", font_size)
+	b.pressed.connect(Audio.play.bind("click"))
 	return b
 
 

@@ -74,6 +74,9 @@ func _initialize() -> void:
 			for j in 40:
 				await process_frame
 			root.get_node("Events").trigger(a.substr(6))
+		if a == "settings":
+			main._select_tab(4)
+			main._open_settings()
 		if a.begins_with("room="):
 			main._browse_room(int(a.substr(5)))
 	for i in 90:
