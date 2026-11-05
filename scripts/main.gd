@@ -626,28 +626,21 @@ func _open_jobs() -> void:
 	var w := ClayDialog.new()
 	w.title = "İş ilanları"
 	w.ok_button_text = "Kapat"
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 8)
-	w.add_child(box)
+	var box := _scroll_box(w, 760)
 	var available: Array = GameState.get_available_jobs()
+	var n := 0
 	for j in GameState.JOBS:
-		var row := HBoxContainer.new()
-		box.add_child(row)
-		var l := _label(20)
 		var req: String = GameState.job_requirement_text(j)
-		l.text = "%s — %d para / %d saat\n%s" % [j.name, j.pay, int(j.hours), req if req != "" else "Başvurabilir"]
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(l)
-		var b := _button("Mevcut" if GameState.person.job == j.id else "Başvur", 20)
-		b.custom_minimum_size = Vector2(120, 60)
-		b.disabled = not available.has(j) or GameState.person.job == j.id
+		var current: bool = GameState.person.job == j.id
+		var ok: bool = available.has(j) and not current
+		var b := _pill("Mevcut" if current else "Başvur", ok)
 		b.pressed.connect(GameState.take_job.bind(j.id))
 		b.pressed.connect(w.queue_free)
-		row.add_child(b)
-	w.confirmed.connect(w.queue_free)
-	w.canceled.connect(w.queue_free)
+		_strip(box, j.name, "%d para · %d saat · %s" % [j.pay, int(j.hours), req if req != "" else "Başvurabilir"],
+			"job_" + j.id, _strip_color(n), [b], not ok and not current)
+		n += 1
 	add_child(w)
-	w.popup_centered(Vector2i(520, 0))
+	w.popup_centered()
 
 
 # --- İşletme penceresi ---
@@ -693,9 +686,9 @@ func _fill_business() -> void:
 	var title: String = GameState.get_title()
 	var head := _label(22)
 	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	head.text = "%s · Unvan: %s\nToplam değer: %d · Para: %d" % [
+	head.text = "%s · Unvan: %s\nToplam değer: %s · Para: %s" % [
 		GameState.get_holding_name() if GameState.is_holding() else "%s ailesi" % GameState.family_name,
-		title if title != "" else "yok", GameState.total_business_value(), GameState.money]
+		title if title != "" else "yok", _fmt_money(GameState.total_business_value()), _fmt_money(GameState.money)]
 	_biz_box.add_child(head)
 
 	_biz_box.add_child(_section("Sahip olunan işletmeler"))
@@ -706,38 +699,27 @@ func _fill_business() -> void:
 	for i in GameState.businesses.size():
 		var b: Dictionary = GameState.businesses[i]
 		var t: Dictionary = GameState.get_business_type(b.type)
-		var row := HBoxContainer.new()
-		_biz_box.add_child(row)
-		var l := _label(20)
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		l.text = "%s (Sv %d)\nGünlük +%d · Moral %d%%" % [t.name, int(b.level), GameState.business_income(b), int(b.morale)]
-		row.add_child(l)
-		var up := _button("Büyüt\n%d" % GameState.business_upgrade_cost(b) if b.level < GameState.MAX_BUSINESS_LEVEL else "Maks.", 18)
-		up.custom_minimum_size = Vector2(110, 64)
-		up.disabled = b.level >= GameState.MAX_BUSINESS_LEVEL or GameState.money < GameState.business_upgrade_cost(b)
+		var maxed: bool = b.level >= GameState.MAX_BUSINESS_LEVEL
+		var up := _pill("Maks." if maxed else "Büyüt\n%s" % _fmt_money(GameState.business_upgrade_cost(b)),
+			not maxed and GameState.money >= GameState.business_upgrade_cost(b))
 		up.pressed.connect(GameState.upgrade_business.bind(i))
-		row.add_child(up)
-		var sell := _button("Sat\n+%d" % int(b.invested * GameState.BUSINESS_SELL_RATIO), 18)
-		sell.custom_minimum_size = Vector2(100, 64)
+		var sell := _pill("Sat\n+%s" % _fmt_money(int(b.invested * GameState.BUSINESS_SELL_RATIO)), true)
+		sell.custom_minimum_size.x = 100
 		sell.pressed.connect(GameState.sell_business.bind(i))
-		row.add_child(sell)
+		_strip(_biz_box, "%s · Sv %d" % [t.name, int(b.level)], "Günlük +%s · Moral %%%d" % [_fmt_money(GameState.business_income(b)), int(b.morale)],
+			"biz_" + b.type, _strip_color(i), [up, sell])
 
 	_biz_box.add_child(_section("Yeni işletme kur"))
+	var n := 0
 	for t in GameState.BUSINESS_TYPES:
-		var row := HBoxContainer.new()
-		_biz_box.add_child(row)
-		var l := _label(20)
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var req: String = GameState.business_requirement_text(t)
-		l.text = "%s — %d para\nGünlük ~%d · %s" % [t.name, t.cost, t.income, req if req != "" else "Kurulabilir"]
-		row.add_child(l)
-		var b := _button("Kur", 20)
-		b.custom_minimum_size = Vector2(100, 64)
-		b.disabled = not GameState.can_open_business(t.id)
-		if GameState.owns_business(t.id):
-			b.text = "Sahip"
-		b.pressed.connect(GameState.open_business.bind(t.id))
-		row.add_child(b)
+		var owned: bool = GameState.owns_business(t.id)
+		var can: bool = GameState.can_open_business(t.id)
+		var kb := _pill("Sahip" if owned else "Kur", can)
+		kb.pressed.connect(GameState.open_business.bind(t.id))
+		_strip(_biz_box, "%s · %s para" % [t.name, _fmt_money(t.cost)], "Günlük ~%s · %s" % [_fmt_money(t.income), req if req != "" else ("Sende var" if owned else "Kurulabilir")],
+			"biz_" + t.id, _strip_color(n + 2), [kb], not can and not owned)
+		n += 1
 
 
 # --- Olaylar ---
@@ -863,45 +845,123 @@ func _open_boost() -> void:
 
 
 # --- Hedefler ---
-## Kaydırılabilir liste penceresi; rows: [[metin, buton yazısı, etkin mi, callable]]
+## Kaydırılabilir liste penceresi (renkli şeritler).
+## rows: [[başlık\naçıklama, buton yazısı ("" = butonsuz), etkin mi, callable, ikon, soluk mu]]
 func _list_dialog(title: String, header: String, rows: Array) -> void:
 	var w := ClayDialog.new()
 	w.title = title
 	w.ok_button_text = "Kapat"
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(600, mini(820, 140 + rows.size() * 84))
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	w.add_child(scroll)
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 8)
-	scroll.add_child(box)
+	var box := _scroll_box(w, mini(820, 120 + rows.size() * 104))
 	if header != "":
-		var h := _label(20)
+		var h := _label(21)
 		h.text = header
 		h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		h.add_theme_color_override("font_color", UiStyle.CORAL.darkened(0.25))
 		box.add_child(h)
+	var n := 0
 	for r in rows:
-		var row := HBoxContainer.new()
-		box.add_child(row)
-		var l := _label(19)
-		l.text = r[0]
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(l)
+		var parts: PackedStringArray = String(r[0]).split("\n", true, 1)
+		var btns := []
 		if r[1] != "":
-			var b := _button(r[1], 18)
-			b.custom_minimum_size = Vector2(130, 64)
-			b.disabled = not r[2]
+			var b := _pill(r[1], r[2])
 			if r[3] is Callable:
 				b.pressed.connect(r[3])
 				b.pressed.connect(w.queue_free)
-			row.add_child(b)
-	w.confirmed.connect(w.queue_free)
-	w.canceled.connect(w.queue_free)
+			btns.append(b)
+		_strip(box, parts[0], parts[1] if parts.size() > 1 else "", r[4] if r.size() > 4 else "", _strip_color(n), btns,
+			r[5] if r.size() > 5 else false)
+		n += 1
 	add_child(w)
 	w.popup_centered()
+
+
+## Kaydırılabilir içerik kutusu.
+func _scroll_box(w: Node, height: int) -> VBoxContainer:
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(620, height)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	w.add_child(scroll)
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 10)
+	scroll.add_child(box)
+	return box
+
+
+const STRIP_COLORS := [UiStyle.YELLOW, UiStyle.BLUE, UiStyle.CORAL, UiStyle.GREEN, UiStyle.PURPLE, UiStyle.PINK, UiStyle.TEAL]
+
+
+func _strip_color(i: int) -> Color:
+	return STRIP_COLORS[i % STRIP_COLORS.size()]
+
+
+## Renkli kil şerit: yuvarlak ikon, başlık, açıklama ve sağda butonlar.
+func _strip(parent: Node, title: String, desc: String, icon_name: String, color: Color, buttons: Array = [], dim := false) -> PanelContainer:
+	var c := color.lerp(Color(0.72, 0.7, 0.68), 0.55) if dim else color
+	var strip := PanelContainer.new()
+	var st := UiStyle.clay_box(c, 22, 6)
+	st.content_margin_left = 10
+	st.content_margin_right = 10
+	strip.add_theme_stylebox_override("panel", st)
+	parent.add_child(strip)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	strip.add_child(row)
+	if icon_name != "":
+		var bubble := PanelContainer.new()
+		var bs := StyleBoxFlat.new()
+		bs.bg_color = Color(1, 1, 1, 0.38)
+		bs.set_corner_radius_all(30)
+		bubble.add_theme_stylebox_override("panel", bs)
+		bubble.custom_minimum_size = Vector2(60, 60)
+		bubble.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(bubble)
+		var ic := TextureRect.new()
+		ic.texture = UiStyle.icon(icon_name)
+		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ic.custom_minimum_size = Vector2(46, 46)
+		if dim:
+			ic.modulate = Color(1, 1, 1, 0.6)
+		bubble.add_child(ic)
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 0)
+	row.add_child(col)
+	var dark := c.darkened(0.5)
+	var t := _label(21)
+	t.text = title
+	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	t.add_theme_font_override("font", UiStyle.FONT_BLACK)
+	t.add_theme_color_override("font_color", Color.WHITE)
+	t.add_theme_color_override("font_outline_color", dark)
+	t.add_theme_constant_override("outline_size", 6)
+	col.add_child(t)
+	if desc != "":
+		var d := _label(16)
+		d.text = desc
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		d.add_theme_color_override("font_color", Color.WHITE)
+		d.add_theme_color_override("font_outline_color", dark)
+		d.add_theme_constant_override("outline_size", 4)
+		col.add_child(d)
+	for b in buttons:
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(b)
+	UiStyle.pop_in(strip, 0.03 * parent.get_child_count())
+	return strip
+
+
+## Şerit üzerindeki beyaz hap buton.
+func _pill(text: String, enabled: bool) -> ClayButton:
+	var b := _button(text, 17)
+	b.clay_color = UiStyle.CREAM
+	b.radius = 16
+	b.depth = 5
+	b.custom_minimum_size = Vector2(118, 58)
+	b.disabled = not enabled
+	return b
 
 
 func _fmt_money(v: int) -> String:
@@ -917,9 +977,9 @@ func _open_luxury() -> void:
 	var rows := []
 	for it in Goals.LUXURY:
 		var owned: bool = Goals.owned_luxury().has(it.id)
-		rows.append(["%s — %s para\nPrestij +%d · her gün mutluluk +%d" % [it.name, _fmt_money(it.cost), it.prestige, int(it.fun)],
-			"Sahip" if owned else "Satın al", not owned and GameState.money >= it.cost and GameState.get_age_years() >= 18.0,
-			Goals.buy_luxury.bind(it.id)])
+		var can: bool = not owned and GameState.money >= it.cost and GameState.get_age_years() >= 18.0
+		rows.append(["%s · %s para\nPrestij +%d · her gün mutluluk +%d" % [it.name, _fmt_money(it.cost), it.prestige, int(it.fun)],
+			"Sahip" if owned else "Satın al", can, Goals.buy_luxury.bind(it.id), "lux_" + it.id, not can and not owned])
 	_list_dialog("Lüks varlıklar", "Para: %s · Varlıklar aileye miras kalır." % _fmt_money(GameState.money), rows)
 
 
@@ -927,8 +987,9 @@ func _open_projects() -> void:
 	var rows := []
 	for p in Goals.PROJECTS:
 		var done: bool = Goals.completed_projects().has(p.id)
-		rows.append(["%s — %s para\n%s (+%d miras puanı, +%d elmas)" % [p.name, _fmt_money(p.cost), p.desc, p.legacy, p.gems],
-			"Tamamlandı" if done else "Bağışla", not done and GameState.money >= p.cost, Goals.fund_project.bind(p.id)])
+		var can: bool = not done and GameState.money >= p.cost
+		rows.append(["%s · %s para\n%s (+%d miras puanı, +%d elmas)" % [p.name, _fmt_money(p.cost), p.desc, p.legacy, p.gems],
+			"Tamam" if done else "Bağışla", can, Goals.fund_project.bind(p.id), "proj_" + p.id, not can and not done])
 	_list_dialog("Hayır işleri", "Topluma katkı, aile adını nesiller boyu yaşatır. Para: %s" % _fmt_money(GameState.money), rows)
 
 
@@ -937,17 +998,17 @@ func _open_achievements() -> void:
 	var got: Array = Goals.unlocked()
 	for a in Goals.ACHIEVEMENTS:
 		var ok: bool = got.has(a.id)
-		rows.append(["%s %s\n%s (+%d elmas)" % ["✔" if ok else "○", a.name, a.desc, a.gems], "", false, null])
+		rows.append(["%s\n%s (+%d elmas)" % [a.name, a.desc, a.gems], "", false, null, "trophy" if ok else "lock", not ok])
 	_list_dialog("Başarımlar", "%d / %d başarım" % [got.size(), Goals.ACHIEVEMENTS.size()], rows)
 
 
 func _open_family_tree() -> void:
 	var rows := []
 	for f in GameState.family_tree:
-		rows.append(["Nesil %d · %s · %d yaş · %s%s" % [int(f.generation), f.name, int(f.age), f.cause,
-			(" · " + f.title) if f.get("title", "") != "" else ""], "", false, null])
-	rows.append(["Nesil %d · %s · %d yaş · yaşıyor%s" % [GameState.generation, GameState.person.name,
-		int(GameState.get_age_years()), (" · " + GameState.get_title()) if GameState.get_title() != "" else ""], "", false, null])
+		rows.append(["Nesil %d · %s\n%d yaşında, %s%s" % [int(f.generation), f.name, int(f.age), f.cause,
+			(" · " + f.title) if f.get("title", "") != "" else ""], "", false, null, "dove"])
+	rows.append(["Nesil %d · %s\n%d yaşında, yaşıyor%s" % [GameState.generation, GameState.person.name,
+		int(GameState.get_age_years()), (" · " + GameState.get_title()) if GameState.get_title() != "" else ""], "", false, null, "sprout"])
 	_list_dialog("%s ailesi" % GameState.family_name, "Aile mirası puanı: %d" % Goals.legacy_score(), rows)
 
 
@@ -980,22 +1041,16 @@ func _open_homes() -> void:
 	var head := _label(20)
 	head.text = "Ev sahibi olunca kira yerine daha düşük bakım gideri ödenir. Büyük evde daha hızlı dinlenilir ve mutluluk daha yavaş azalır. Ev aileye miras kalır."
 	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	head.custom_minimum_size.x = 560
+	head.custom_minimum_size.x = 600
 	box.add_child(head)
 	for i in GameState.HOMES.size():
 		var h: Dictionary = GameState.HOMES[i]
-		var row := HBoxContainer.new()
-		box.add_child(row)
-		var l := _label(20)
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		l.text = "%s — %d oda\n%s · günlük gider %d" % [h.name, h.rooms.size(), ("%d para" % h.cost) if h.cost > 0 else "başlangıç", h.upkeep]
-		row.add_child(l)
-		var b := _button("Mevcut" if i == GameState.home_level else ("Sahip" if i < GameState.home_level else "Satın al"), 20)
-		b.custom_minimum_size = Vector2(130, 64)
-		b.disabled = i <= GameState.home_level or GameState.money < int(h.cost) or GameState.get_age_years() < 18.0
+		var can: bool = i > GameState.home_level and GameState.money >= int(h.cost) and GameState.get_age_years() >= 18.0
+		var b := _pill("Mevcut" if i == GameState.home_level else ("Sahip" if i < GameState.home_level else "Satın al"), can)
 		b.pressed.connect(GameState.buy_home.bind(i))
 		b.pressed.connect(w.queue_free)
-		row.add_child(b)
+		_strip(box, "%s · %d oda" % [h.name, h.rooms.size()], "%s · günlük gider %d" % [("%s para" % _fmt_money(h.cost)) if h.cost > 0 else "başlangıç", h.upkeep],
+			"home_%d" % i, _strip_color(i + 1), [b], not can and i > GameState.home_level)
 	w.confirmed.connect(w.queue_free)
 	w.canceled.connect(w.queue_free)
 	add_child(w)
@@ -1011,7 +1066,7 @@ func _open_store() -> void:
 	w.title = "Mağaza"
 	w.ok_button_text = "Kapat"
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(600, 820)
+	scroll.custom_minimum_size = Vector2(620, 860)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	w.add_child(scroll)
 	_store_box = VBoxContainer.new()
@@ -1035,50 +1090,140 @@ func _fill_store() -> void:
 		return
 	for c in _store_box.get_children():
 		c.queue_free()
-	var head := _label(26)
-	head.text = "Elmas: %d" % Store.gems
-	head.add_theme_color_override("font_color", UiStyle.BLUE.darkened(0.35))
-	_store_box.add_child(head)
+	# Elmas sayacı
+	var top := HBoxContainer.new()
+	top.alignment = BoxContainer.ALIGNMENT_CENTER
+	_store_box.add_child(top)
+	var chip := PanelContainer.new()
+	chip.add_theme_stylebox_override("panel", UiStyle.clay_box(UiStyle.BLUE, 18, 5))
+	top.add_child(chip)
+	var ch := HBoxContainer.new()
+	chip.add_child(ch)
+	ch.add_child(_icon_rect("gem", 32))
+	var gl := _label(26)
+	gl.text = "%d elmas" % Store.gems
+	gl.add_theme_font_override("font", UiStyle.FONT_BLACK)
+	gl.add_theme_color_override("font_color", Color.WHITE)
+	ch.add_child(gl)
 
-	# Günlük ödül
-	var daily := HBoxContainer.new()
-	_store_box.add_child(daily)
-	var dl := _label(20)
-	dl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	dl.text = "Günlük ödül: +%d elmas" % Store.next_daily_amount() if Store.can_claim_daily() else "Günlük ödül alındı · seri: %d gün" % Store.streak
-	daily.add_child(dl)
-	var db := _button("Al", 20)
-	db.custom_minimum_size = Vector2(110, 60)
-	db.disabled = not Store.can_claim_daily()
-	db.pressed.connect(Store.claim_daily)
-	daily.add_child(db)
-
-	_store_box.add_child(_section("%s için" % GameState.person.name))
+	# Raflar: günlük ödül + bakım ürünleri
+	var shelf_items := []
+	var daily_ok: bool = Store.can_claim_daily()
+	shelf_items.append({"icon": "gift", "name": "Günlük ödül", "tag": ("+%d" % Store.next_daily_amount()) if daily_ok else "Yarın",
+		"gem": daily_ok, "enabled": daily_ok, "call": Store.claim_daily, "badge": "BEDAVA" if daily_ok else ""})
+	var short := {"meal": "Sıcak yemek", "energy": "Enerji içeceği", "doctor": "Doktor", "allowance": "Harçlık +300",
+		"cash_bag": "Para çantası", "tutor": "Özel ders", "party": "Kutlama", "vacation": "Tatil"}
 	for it in Store.ITEMS:
-		var row := HBoxContainer.new()
-		_store_box.add_child(row)
-		var l := _label(20)
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		l.text = "%s\n%s" % [it.name, it.desc]
-		row.add_child(l)
-		var b := _button("%d elmas" % it.price, 20)
-		b.custom_minimum_size = Vector2(130, 64)
-		b.disabled = Store.gems < it.price or GameState.is_dead
-		b.pressed.connect(Store.buy_item.bind(it.id))
-		row.add_child(b)
+		shelf_items.append({"icon": "item_" + it.id, "name": short.get(it.id, it.name), "tag": str(it.price), "gem": true,
+			"enabled": Store.gems >= it.price and not GameState.is_dead, "call": Store.buy_item.bind(it.id), "badge": ""})
+	_shop_shelves("Bakkal", "store", shelf_items, Color(1.0, 0.87, 0.68))
 
-	_store_box.add_child(_section("Elmas paketleri" + (" (TEST MODU – ücretsiz)" if Store.TEST_MODE else "")))
+	var packs := []
 	for p in Store.GEM_PACKS:
+		packs.append({"icon": "pack_" + p.id.trim_prefix("gems_"), "name": "%d elmas" % p.gems, "tag": p.price_label, "gem": false,
+			"enabled": true, "call": Store.purchase_pack.bind(p.id), "badge": p.get("badge", "")})
+	_shop_shelves("Elmas sandığı" + (" (test modu)" if Store.TEST_MODE else ""), "gem", packs, Color(0.85, 0.92, 1.0))
+
+
+## Ahşap raflı vitrin: her rafta 3 ürün, ikon + ad + fiyat etiketi.
+func _shop_shelves(title: String, icon_name: String, items: Array, bg: Color) -> void:
+	var shop := PanelContainer.new()
+	var st := UiStyle.clay_box(bg, 24, 6)
+	st.set_content_margin_all(12)
+	shop.add_theme_stylebox_override("panel", st)
+	_store_box.add_child(shop)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	shop.add_child(col)
+	var head := HBoxContainer.new()
+	head.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_child(head)
+	head.add_child(_icon_rect(icon_name, 36))
+	var hl := _label(26)
+	hl.text = title
+	hl.add_theme_font_override("font", UiStyle.FONT_BLACK)
+	hl.add_theme_color_override("font_color", UiStyle.CORAL.darkened(0.2))
+	head.add_child(hl)
+	var k := 0
+	while k < items.size():
 		var row := HBoxContainer.new()
-		_store_box.add_child(row)
-		var l := _label(20)
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		l.text = "%s · %d elmas%s" % [p.name, p.gems, ("\n" + p.badge) if p.has("badge") else ""]
-		row.add_child(l)
-		var b := _button(p.price_label, 20)
-		b.custom_minimum_size = Vector2(130, 64)
-		b.pressed.connect(Store.purchase_pack.bind(p.id))
-		row.add_child(b)
+		row.add_theme_constant_override("separation", 6)
+		col.add_child(row)
+		for it in items.slice(k, k + 3):
+			row.add_child(_shop_item(it, k))
+		# Ahşap raf tahtası
+		var plank := Panel.new()
+		plank.custom_minimum_size.y = 16
+		plank.add_theme_stylebox_override("panel", UiStyle.clay_box(Color(0.78, 0.53, 0.29), 8, 6))
+		col.add_child(plank)
+		k += 3
+
+
+func _shop_item(it: Dictionary, idx: int) -> Control:
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.alignment = BoxContainer.ALIGNMENT_END
+	v.add_theme_constant_override("separation", 2)
+	# İkon kutusu: CenterContainer > sabit boyutlu kutu > ikon (ikon kutu içinde süzülür)
+	var holder := CenterContainer.new()
+	holder.custom_minimum_size = Vector2(0, 90)
+	v.add_child(holder)
+	var box := Control.new()
+	box.custom_minimum_size = Vector2(84, 84)
+	holder.add_child(box)
+	var ic := _icon_rect(it.icon, 80)
+	ic.position = Vector2(2, 2)
+	box.add_child(ic)
+	if it.badge != "":
+		var badge := Label.new()
+		badge.text = it.badge
+		badge.add_theme_font_override("font", UiStyle.FONT_BLACK)
+		badge.add_theme_font_size_override("font_size", 13)
+		badge.add_theme_color_override("font_color", Color.WHITE)
+		var bs := StyleBoxFlat.new()
+		bs.bg_color = UiStyle.PINK
+		bs.set_corner_radius_all(10)
+		bs.content_margin_left = 6
+		bs.content_margin_right = 6
+		badge.add_theme_stylebox_override("normal", bs)
+		badge.rotation = 0.2
+		badge.position = Vector2(48, 2)
+		box.add_child(badge)
+	var name := _label(17)
+	name.text = it.name
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name.add_theme_font_override("font", UiStyle.FONT_BLACK)
+	v.add_child(name)
+	var tag := _button(it.tag, 18)
+	tag.clay_color = UiStyle.YELLOW if it.gem else UiStyle.GREEN
+	tag.radius = 14
+	tag.depth = 5
+	tag.custom_minimum_size = Vector2(0, 50)
+	tag.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	if it.gem:
+		tag.icon = UiStyle.icon("gem")
+		tag.add_theme_constant_override("icon_max_width", 24)
+	tag.disabled = not it.enabled
+	tag.pressed.connect(it.call)
+	v.add_child(tag)
+	if not it.enabled:
+		ic.modulate = Color(1, 1, 1, 0.55)
+	UiStyle.pop_in(v, 0.035 * idx)
+	# Ürün hafifçe süzülür (canlılık)
+	var tw := ic.create_tween().set_loops()
+	tw.tween_property(ic, "position:y", -3.0, 0.9 + 0.1 * (idx % 3)).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(ic, "position:y", 4.0, 0.9 + 0.1 * (idx % 3)).set_trans(Tween.TRANS_SINE)
+	return v
+
+
+func _icon_rect(icon_name: String, sz: int) -> TextureRect:
+	var ic := TextureRect.new()
+	ic.texture = UiStyle.icon(icon_name)
+	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	ic.custom_minimum_size = Vector2(sz, sz)
+	ic.size = Vector2(sz, sz)
+	return ic
 
 
 func _section(text: String) -> Label:
