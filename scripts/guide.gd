@@ -23,7 +23,7 @@ const INTRO := [
 	{"title": "İhtiyaçlar", "target": "top",
 		"text": "Üstteki çubuklar ihtiyaçlarını gösterir. Kırmızıya dönerse hemen ilgilen; uzun süre ihmal edilirse sağlığı bozulur."},
 	{"title": "Zaman", "target": "speed",
-		"text": "Zaman gerçek zamanlı akar. Hızlandırmak için 5x, 20x, 60x; durdurmak için II. Oyunu kapatsan da zaman işler!"},
+		"text": "1x hızda bir gün 6 dakika sürer; 3x ücretsizdir, uyurken zaman kendiliğinden hızlanır. 10x Hızlı mod reklamla açılır. Oyunu kapatsan da zaman yavaşça işler!"},
 	{"title": "Eylemler", "target": "actions",
 		"text": "Ne yapacağını alttaki sekmelerden seç: Bakım, Kariyer, İşletme, Aile ve Mağaza."},
 	{"title": "Evini gez", "target": "nav",

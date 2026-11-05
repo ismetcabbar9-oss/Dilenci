@@ -121,6 +121,11 @@ func _initialize() -> void:
 				"rich=ach": main._open_achievements()
 				"rich=tree": main._open_family_tree()
 				"rich=biz": main._open_business()
+		if a == "boost":
+			main._open_boost()
+		if a == "offline":
+			var gs = root.get_node("GameState")
+			gs._apply_offline(9.0 * 3600.0)
 		if a == "settings":
 			main._select_tab(5)
 			main._open_settings()

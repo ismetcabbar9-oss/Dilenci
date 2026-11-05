@@ -106,11 +106,11 @@ func _initialize() -> void:
 	if gs.person.needs.health != 80.0: fails += 1; print("FAIL grip etkisi yok")
 	ev.trigger("lottery")
 	if gs.money != 6000: fails += 1; print("FAIL piyango ", gs.money)
-	gs.set_speed(3)
+	gs.set_speed(2)
 	ev.trigger("investment")
 	if ev.pending.is_empty() or gs.speed_index != 0: fails += 1; print("FAIL seçimli olay oyunu durdurmadı")
 	ev.choose(1)  # reddet
-	if not ev.pending.is_empty() or gs.speed_index != 3 or gs.money != 6000: fails += 1; print("FAIL seçim sonrası durum")
+	if not ev.pending.is_empty() or gs.speed_index != 2 or gs.money != 6000: fails += 1; print("FAIL seçim sonrası durum")
 	ev.trigger("serious_illness")
 	gs.person.needs.health = 50.0
 	ev.choose(0)  # hastane
@@ -196,6 +196,26 @@ func _initialize() -> void:
 	if gs.money != before + 3000: fails += 1; print("FAIL para çantası")
 	gs.reset_game()
 	if st.gems != 131: fails += 1; print("FAIL yeni oyunda elmas silindi ", st.gems)
+	# Zaman: hızlı mod kilidi, reklamla açma, oyun kapalıyken ilerleme, bildirim planı
+	st.reset_wallet_for_tests()
+	gs.reset_game()
+	gs.set_speed(gs.BOOST_SPEED_INDEX)
+	if gs.speed_index != gs.BOOST_SPEED_INDEX - 1: fails += 1; print("FAIL hızlı mod kilitsiz açıldı")
+	st.buy_boost_with_ad()
+	if not st.boost_active() or gs.speed_index != gs.BOOST_SPEED_INDEX: fails += 1; print("FAIL reklamla hızlı mod")
+	gs.set_speed(1)
+	var gm: float = gs.game_minutes
+	gs.person.needs.hunger = 35.0
+	gs._apply_offline(12.0 * 3600.0)
+	if absf(gs.game_minutes - gm - 1440.0) > 1.0: fails += 1; print("FAIL çevrimdışı süre ", gs.game_minutes - gm)
+	if gs.is_dead or gs.person.needs.hunger < 20.0: fails += 1; print("FAIL çevrimdışı bakım aç=", gs.person.needs.hunger)
+	gm = gs.game_minutes
+	gs._apply_offline(30.0)  # 2 dakikadan kısa: yok sayılır
+	if gs.game_minutes != gm: fails += 1; print("FAIL kısa çevrimdışı")
+	var nt = root.get_node("Notifier")
+	gs.person.needs.hunger = 80.0
+	nt.schedule_reminders()
+	if nt.scheduled.size() < 2: fails += 1; print("FAIL bildirim planı ", nt.scheduled)
 	st.reset_wallet_for_tests()
 	gs.reset_game()
 	print("SONUÇ: ", "TÜM TESTLER GEÇTİ" if fails == 0 else "%d HATA" % fails)

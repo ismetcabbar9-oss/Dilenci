@@ -14,13 +14,19 @@ const SAVE_VERSION := 1
 
 # --- Zaman ayarları ---
 # 1x hızda 1 gerçek saniye = 1 oyun dakikası.
-const GAME_MINUTES_PER_SECOND := 1.0
+# 1x hızda 1 gerçek saniye = 4 oyun dakikası → 1 oyun günü 6 dk, 1 oyun yılı 24 dk, bir hayat ~30 saat.
+const GAME_MINUTES_PER_SECOND := 4.0
 # Bir oyun yılı kaç oyun günü sürer (sıkıştırılmış takvim).
 const DAYS_PER_YEAR := 4
 const START_AGE_YEARS := 6.0
-const SPEEDS: Array[float] = [0.0, 1.0, 5.0, 20.0, 60.0]
+const SPEEDS: Array[float] = [0.0, 1.0, 3.0, 10.0]
+const BOOST_SPEED_INDEX := 3       # 10x: Hızlı mod (elmas veya ödüllü reklamla açılır)
+const SLEEP_TIME_MULT := 5.0       # Uyurken zaman kendiliğinden hızlı akar
 # Oyun kapalıyken en fazla bu kadar gerçek saniye işlenir (8 saat).
-const OFFLINE_CAP_SECONDS := 8.0 * 3600.0
+# Oyun kapalıyken zaman yavaş işler: 1 gerçek dakika = 2 oyun dakikası, en fazla 1 oyun günü (~12 saat).
+const OFFLINE_GAME_MIN_PER_SECOND := 2.0 / 60.0
+const OFFLINE_MAX_GAME_MINUTES := 24.0 * 60.0
+const OFFLINE_CAP_SECONDS := 24.0 * 3600.0
 
 # --- İhtiyaçlar: saatte ne kadar düşer ---
 const NEED_KEYS: Array[String] = ["hunger", "energy", "fun", "hygiene", "health"]
@@ -147,7 +153,13 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if is_dead:
 		return
-	var minutes := delta * GAME_MINUTES_PER_SECOND * SPEEDS[speed_index]
+	if speed_index == BOOST_SPEED_INDEX and not Store.boost_active():
+		speed_index = 2
+		message.emit("Hızlı mod sona erdi.")
+		changed.emit()
+	var minutes := minf(delta, 1.0) * GAME_MINUTES_PER_SECOND * SPEEDS[speed_index]
+	if sleeping:
+		minutes *= SLEEP_TIME_MULT
 	if minutes > 0.0:
 		simulate(minutes, false)
 	_autosave_timer += delta
@@ -160,6 +172,13 @@ func _notification(what: int) -> void:
 	# Android'de uygulama arka plana atılınca / kapanınca kaydet.
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
 		save_game()
+		_paused_at = Time.get_unix_time_from_system()
+		Notifier.schedule_reminders()
+	elif what == NOTIFICATION_APPLICATION_RESUMED and _paused_at > 0.0:
+		Notifier.cancel_all()
+		_apply_offline(Time.get_unix_time_from_system() - _paused_at)
+		_paused_at = 0.0
+		changed.emit()
 
 
 # ---------------------------------------------------------------
@@ -361,7 +380,10 @@ func action_wash() -> void:
 
 
 func set_speed(index: int) -> void:
-	speed_index = clampi(index, 0, SPEEDS.size() - 1)
+	index = clampi(index, 0, SPEEDS.size() - 1)
+	if index == BOOST_SPEED_INDEX and not Store.boost_active():
+		index = BOOST_SPEED_INDEX - 1  # Hızlı mod yoksa 3x (arayüz önce satın alma penceresini gösterir)
+	speed_index = index
 	changed.emit()
 
 
@@ -969,14 +991,56 @@ func load_game() -> bool:
 	_last_stage = get_stage().id
 
 	# Oyun kapalıyken geçen zaman (Tamagotchi hissi).
-	if not is_dead:
-		var away := Time.get_unix_time_from_system() - float(data.get("saved_at", 0.0))
-		away = clampf(away, 0.0, OFFLINE_CAP_SECONDS)
-		if away > 60.0:
-			simulate(away * GAME_MINUTES_PER_SECOND, true)
-			message.emit.call_deferred("Sen yokken %d dakika geçti." % int(away / 60.0))
+	if speed_index >= SPEEDS.size():
+		speed_index = 1
+	_apply_offline(Time.get_unix_time_from_system() - float(data.get("saved_at", 0.0)))
 	changed.emit()
 	return true
+
+
+## Oyuncu yokken geçen süre: yavaş akar, karakter kendi başının çaresine bakar, ölmez.
+signal offline_summary(text: String)
+var _paused_at := 0.0
+
+
+func _apply_offline(away_seconds: float) -> void:
+	if is_dead or away_seconds < 120.0:
+		return
+	away_seconds = clampf(away_seconds, 0.0, OFFLINE_CAP_SECONDS)
+	var game_min := minf(away_seconds * OFFLINE_GAME_MIN_PER_SECOND, OFFLINE_MAX_GAME_MINUTES)
+	var money_before := money
+	var age_before := get_age_years()
+	var left := game_min
+	while left > 0.0:
+		var step := minf(left, 30.0)
+		_offline_autocare()
+		simulate(step, true)
+		left -= step
+	var hours := int(away_seconds / 3600.0)
+	var away_text := ("%d saat" % hours) if hours >= 1 else ("%d dakika" % int(away_seconds / 60.0))
+	var text := "Sen yokken (%s) %s %d oyun saati yaşadı." % [away_text, person.name, int(game_min / 60.0)]
+	if money != money_before:
+		text += " Para: %+d." % (money - money_before)
+	if int(get_age_years()) > int(age_before):
+		text += " Bir yaş büyüdü!"
+	offline_summary.emit.call_deferred(text)
+
+
+## Oyuncu yokken: acıkınca evde yer, gece veya yorgunken uyur.
+func _offline_autocare() -> void:
+	var n: Dictionary = person.needs
+	var hour := fmod(game_minutes, 1440.0) / 60.0
+	if not sleeping and (n.energy < 20.0 or hour >= 23.0 or hour < 6.0) and n.energy < 90.0:
+		sleeping = true
+	if sleeping:
+		return
+	if n.hunger < 30.0:
+		var cost := 0 if get_age_years() < 18.0 else 10
+		if money >= cost:
+			money -= cost
+			_add_need("hunger", 45.0)
+	if n.hygiene < 25.0:
+		_add_need("hygiene", 40.0)
 
 
 func reset_game() -> void:

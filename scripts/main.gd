@@ -58,6 +58,7 @@ func _ready() -> void:
 	Store.wallet_changed.connect(_refresh_ui)
 	Events.event_happened.connect(_show_event_card)
 	Events.choice_requested.connect(_show_event_choice)
+	GameState.offline_summary.connect(func(t): _show_event_card({"id": "offline", "title": "Tekrar hoş geldin!", "text": t, "result": ""}))
 	Goals.achievement_unlocked.connect(func(a): _show_event_card({"id": "achievement", "title": "Başarım: " + a.name, "text": a.desc, "result": "+%d elmas" % a.gems}))
 	_rebuild_home()
 	_refresh_ui()
@@ -311,12 +312,12 @@ func _build_ui() -> void:
 	_guide_targets["speed"] = speed_row
 	speed_row.alignment = BoxContainer.ALIGNMENT_END
 	top_col.add_child(speed_row)
-	var speed_texts := ["II", "1x", "5x", "20x", "60x"]
+	var speed_texts := ["II", "1x", "3x", "10x"]
 	for i in speed_texts.size():
 		var b := _button(speed_texts[i], 22)
 		b.toggle_mode = true
-		b.custom_minimum_size = Vector2(70, 50)
-		b.pressed.connect(GameState.set_speed.bind(i))
+		b.custom_minimum_size = Vector2(80 if i < 3 else 150, 50)
+		b.pressed.connect(_on_speed_pressed.bind(i))
 		speed_row.add_child(b)
 		speed_buttons.append(b)
 
@@ -702,6 +703,45 @@ func _on_event_choice(i: int) -> void:
 	Events.choose(i)
 
 
+# --- Hız ---
+func _on_speed_pressed(i: int) -> void:
+	if i == GameState.BOOST_SPEED_INDEX and not Store.boost_active():
+		_refresh_ui()
+		_open_boost()
+		return
+	GameState.set_speed(i)
+
+
+## Hızlı mod: 30 dakika 10x, elmasla veya ödüllü reklamla.
+func _open_boost() -> void:
+	var w := AcceptDialog.new()
+	w.title = "Hızlı mod"
+	w.ok_button_text = "Vazgeç"
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	w.add_child(box)
+	var l := _label(22)
+	l.text = "Zaman %d dakika boyunca 10 kat hızlı aksın mı?\n(1x ve 3x her zaman ücretsiz.)" % int(Store.BOOST_MINUTES)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = 520
+	box.add_child(l)
+	var ad := _button("Reklam izle (ücretsiz)", 24)
+	ad.custom_minimum_size.y = 76
+	ad.pressed.connect(Store.buy_boost_with_ad)
+	ad.pressed.connect(w.queue_free)
+	box.add_child(ad)
+	var gem := _button("%d elmas" % Store.BOOST_GEM_PRICE, 24)
+	gem.custom_minimum_size.y = 76
+	gem.disabled = Store.gems < Store.BOOST_GEM_PRICE
+	gem.pressed.connect(Store.buy_boost_with_gems)
+	gem.pressed.connect(w.queue_free)
+	box.add_child(gem)
+	w.confirmed.connect(w.queue_free)
+	w.canceled.connect(w.queue_free)
+	add_child(w)
+	w.popup_centered()
+
+
 # --- Hedefler ---
 ## Kaydırılabilir liste penceresi; rows: [[metin, buton yazısı, etkin mi, callable]]
 func _list_dialog(title: String, header: String, rows: Array) -> void:
@@ -977,6 +1017,8 @@ func _refresh_ui() -> void:
 		bar.modulate = Color(1, 0.35, 0.35) if v < 25.0 else (Color(1, 0.85, 0.3) if v < 50.0 else Color(0.5, 1, 0.5))
 	for i in speed_buttons.size():
 		speed_buttons[i].set_pressed_no_signal(i == GameState.speed_index)
+	if speed_buttons.size() > GameState.BOOST_SPEED_INDEX:
+		speed_buttons[GameState.BOOST_SPEED_INDEX].text = ("10x · %d dk" % Store.boost_minutes_left()) if Store.boost_active() else "10x Hızlı"
 	for b in action_buttons:
 		b.disabled = GameState.is_dead
 

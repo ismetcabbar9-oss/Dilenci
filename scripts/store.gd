@@ -38,6 +38,10 @@ var gems: int = 10             # Başlangıç hediyesi
 var last_daily_day: int = -1   # Gerçek takvim günü (unix gün)
 var streak: int = 0
 var total_purchased: int = 0   # Gerçek parayla alınan toplam elmas
+var boost_until: float = 0.0   # Hızlı mod (10x) bitiş zamanı (unix)
+
+const BOOST_MINUTES := 30.0
+const BOOST_GEM_PRICE := 5
 
 
 func _ready() -> void:
@@ -115,6 +119,49 @@ func _apply_item(item_id: String) -> void:
 
 
 # ---------------------------------------------------------------
+# Hızlı mod (10x): elmasla veya ödüllü reklamla 30 dakika
+# ---------------------------------------------------------------
+func boost_active() -> bool:
+	return Time.get_unix_time_from_system() < boost_until
+
+
+func boost_minutes_left() -> int:
+	return maxi(0, int((boost_until - Time.get_unix_time_from_system()) / 60.0))
+
+
+func _grant_boost() -> void:
+	boost_until = maxf(boost_until, Time.get_unix_time_from_system()) + BOOST_MINUTES * 60.0
+	_save()
+	wallet_changed.emit()
+	GameState.set_speed(GameState.BOOST_SPEED_INDEX)
+	GameState.message.emit("Hızlı mod açık! (%d dk)" % boost_minutes_left())
+
+
+func buy_boost_with_gems() -> void:
+	if not spend_gems(BOOST_GEM_PRICE):
+		GameState.message.emit("Yeterli elmas yok (%d gerekli)." % BOOST_GEM_PRICE)
+		return
+	_grant_boost()
+
+
+func buy_boost_with_ad() -> void:
+	show_rewarded_ad(func(ok: bool):
+		if ok:
+			_grant_boost()
+		else:
+			GameState.message.emit("Reklam şu an yüklenemedi, biraz sonra tekrar dene."))
+
+
+## Ödüllü reklam. TEST MODU: anında başarılı sayılır.
+## TODO: AdMob eklentisi (godot-admob-android) bağlanınca gerçek reklam gösterilecek.
+func show_rewarded_ad(on_done: Callable) -> void:
+	if TEST_MODE:
+		on_done.call(true)
+	else:
+		on_done.call(false)
+
+
+# ---------------------------------------------------------------
 # Günlük ödül (gerçek takvim gününe göre)
 # ---------------------------------------------------------------
 func _today() -> int:
@@ -186,6 +233,7 @@ func _save() -> void:
 			"last_daily_day": last_daily_day,
 			"streak": streak,
 			"total_purchased": total_purchased,
+			"boost_until": boost_until,
 		}))
 
 
@@ -203,6 +251,7 @@ func _load() -> void:
 	last_daily_day = int(d.get("last_daily_day", -1))
 	streak = int(d.get("streak", 0))
 	total_purchased = int(d.get("total_purchased", 0))
+	boost_until = float(d.get("boost_until", 0.0))
 
 
 ## Sadece testler için: cüzdanı sıfırla.
@@ -211,5 +260,6 @@ func reset_wallet_for_tests() -> void:
 	last_daily_day = -1
 	streak = 0
 	total_purchased = 0
+	boost_until = 0.0
 	_save()
 	wallet_changed.emit()
