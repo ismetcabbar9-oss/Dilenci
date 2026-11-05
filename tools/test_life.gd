@@ -96,6 +96,49 @@ func _initialize() -> void:
 	m = gs.money
 	gs.simulate(24.0 * 60.0, false)
 	if gs.money != m - gs.HOMES[1].upkeep: fails += 1; print("FAIL ev bakım gideri ", m, "->", gs.money)
+	# Rastgele olaylar
+	var ev = root.get_node("Events")
+	gs.reset_game()
+	gs.person.age_minutes = gs.years_to_minutes(30.0)
+	gs.money = 1000
+	_fill(gs)
+	ev.trigger("cold")
+	if gs.person.needs.health != 80.0: fails += 1; print("FAIL grip etkisi yok")
+	ev.trigger("lottery")
+	if gs.money != 6000: fails += 1; print("FAIL piyango ", gs.money)
+	gs.set_speed(3)
+	ev.trigger("investment")
+	if ev.pending.is_empty() or gs.speed_index != 0: fails += 1; print("FAIL seçimli olay oyunu durdurmadı")
+	ev.choose(1)  # reddet
+	if not ev.pending.is_empty() or gs.speed_index != 3 or gs.money != 6000: fails += 1; print("FAIL seçim sonrası durum")
+	ev.trigger("serious_illness")
+	gs.person.needs.health = 50.0
+	ev.choose(0)  # hastane
+	if gs.person.needs.health != 100.0 or gs.money != 5850: fails += 1; print("FAIL hastane seçimi")
+	# Tüm olayların şartı ve etkisi hatasız çalışmalı
+	gs.open_business("kiosk")
+	gs.open_business("cafe")
+	gs.person.partner = {"name": "Deniz", "gender": "female", "age_minutes": gs.person.age_minutes, "relation": 50.0, "married": true}
+	gs.person.children = [{"name": "Ece", "gender": "female", "age_minutes": gs.years_to_minutes(9.0)}]
+	gs.person.job = "worker"
+	gs.person.experience = 10.0
+	for e in ev.events:
+		e.cond.call()
+		ev.trigger(e.id)
+		if not ev.pending.is_empty():
+			ev.choose(0)
+	# Doğal oluşum: 200 günde birkaç olay çıkmalı
+	ev.set_seed(42)
+	ev._last_seen = {}
+	var count := 0
+	for d in 200:
+		gs.game_minutes += 1440.0
+		var before: Dictionary = ev._last_seen.duplicate()
+		ev._on_day_started(false)
+		if ev._last_seen != before: count += 1
+		if not ev.pending.is_empty(): ev.choose(1)
+	if count < 10 or count > 120: fails += 1; print("FAIL olay sıklığı ", count)
+	print("200 günde olay sayısı: ", count)
 	# Mağaza / elmas
 	var st = root.get_node("Store")
 	st.reset_wallet_for_tests()

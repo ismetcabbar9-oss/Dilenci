@@ -34,7 +34,11 @@ var _family_signature := ""
 var _focus_room := 0          # Kameranın baktığı oda
 var _char_room := 0           # Karakterin bulunduğu oda
 var _char_target := Vector3.ZERO
-var _manual_focus := false    # Oyuncu oklarla gezerken kamerayı karaktere bağlama
+var _manual_focus := false
+var _ui_layer: CanvasLayer
+var _event_card: PanelContainer
+var _event_card_timer := 0.0
+var _event_modal: Control    # Oyuncu oklarla gezerken kamerayı karaktere bağlama
 var _was_sleeping := false
 
 # Eylem sekmeleri: [sekme adı, [[buton, callable], ...]]
@@ -50,6 +54,8 @@ func _ready() -> void:
 	GameState.died.connect(_on_died)
 	GameState.acted.connect(_on_acted)
 	Store.wallet_changed.connect(_refresh_ui)
+	Events.event_happened.connect(_show_event_card)
+	Events.choice_requested.connect(_show_event_choice)
 	_rebuild_home()
 	_refresh_ui()
 	if GameState.is_dead:
@@ -83,6 +89,10 @@ func _process(delta: float) -> void:
 		camera.look_at(camera.position - CAM_OFFSET + CAM_LOOK)
 
 	_update_daylight()
+	if _event_card_timer > 0.0:
+		_event_card_timer -= delta
+		if _event_card_timer <= 0.0 and is_instance_valid(_event_card):
+			_event_card.queue_free()
 	if _msg_timer > 0.0:
 		_msg_timer -= delta
 		if _msg_timer <= 0.0:
@@ -244,6 +254,7 @@ func _refresh_family() -> void:
 func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	_ui_layer = layer
 
 	var root := MarginContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -565,6 +576,74 @@ func _fill_business() -> void:
 		b.disabled = not GameState.can_open_business(t.id)
 		b.pressed.connect(GameState.open_business.bind(t.id))
 		row.add_child(b)
+
+
+# --- Olaylar ---
+func _event_panel(title: String, text: String, accent: Color) -> Array:
+	var panel := PanelContainer.new()
+	var st := _panel_style()
+	st.bg_color = Color(0.12, 0.14, 0.22, 0.97)
+	st.border_color = accent
+	st.set_border_width_all(4)
+	panel.add_theme_stylebox_override("panel", st)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	panel.add_child(box)
+	var t := _label(30)
+	t.text = title
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	t.add_theme_color_override("font_color", accent)
+	box.add_child(t)
+	var body := _label(24)
+	body.text = text
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.custom_minimum_size.x = 560
+	box.add_child(body)
+	return [panel, box]
+
+
+## Anlık olay: birkaç saniye görünen kart (dokununca kapanır).
+func _show_event_card(ev: Dictionary) -> void:
+	if is_instance_valid(_event_card):
+		_event_card.queue_free()
+	var good: bool = not (ev.id in ["cold", "theft", "crisis"])
+	var parts := _event_panel(ev.title, "%s\n%s" % [ev.text, ev.get("result", "")], Color(0.5, 1.0, 0.6) if good else Color(1.0, 0.5, 0.45))
+	_event_card = parts[0]
+	_ui_layer.add_child(_event_card)
+	_event_card.reset_size()
+	_event_card.position = Vector2((get_viewport().get_visible_rect().size.x - _event_card.size.x) / 2.0, 460)
+	_event_card.gui_input.connect(func(e):
+		if e is InputEventMouseButton and e.pressed and is_instance_valid(_event_card):
+			_event_card.queue_free())
+	_event_card_timer = 4.5
+
+
+## Seçimli olay: ekran kararır, oyuncu seçer (oyun bu sırada durur).
+func _show_event_choice(ev: Dictionary) -> void:
+	if is_instance_valid(_event_modal):
+		_event_modal.queue_free()
+	_event_modal = ColorRect.new()
+	(_event_modal as ColorRect).color = Color(0, 0, 0, 0.55)
+	_event_modal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_ui_layer.add_child(_event_modal)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_event_modal.add_child(center)
+	var parts := _event_panel(ev.title, ev.text, Color(1.0, 0.8, 0.35))
+	center.add_child(parts[0])
+	var opts: Array = ev.options
+	for i in opts.size():
+		var b := _button(opts[i].label, 24)
+		b.custom_minimum_size.y = 80
+		b.pressed.connect(_on_event_choice.bind(i))
+		parts[1].add_child(b)
+
+
+func _on_event_choice(i: int) -> void:
+	if is_instance_valid(_event_modal):
+		_event_modal.queue_free()
+	Events.choose(i)
 
 
 # --- Ev penceresi ---

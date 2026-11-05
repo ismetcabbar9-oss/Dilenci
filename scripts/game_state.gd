@@ -6,6 +6,7 @@ signal changed            # Herhangi bir değer değişti (UI yenilensin)
 signal stage_changed(stage: String)
 signal message(text: String)
 signal died(cause: String)
+signal day_started(offline: bool)  # Yeni oyun günü (rastgele olaylar için)
 signal acted(kind: String)  # Bir eylem yapıldı (görsel tepki için): eat, play, wash, study, work, social, date, manage
 
 const SAVE_PATH := "user://save.json"
@@ -207,6 +208,7 @@ func _simulate_step(minutes: float, offline: bool) -> void:
 	game_minutes += minutes
 	for _d in get_day() - day_before:
 		_new_day()
+		day_started.emit(offline)
 	person.age_minutes += minutes
 	if not person.partner.is_empty():
 		person.partner.age_minutes += minutes

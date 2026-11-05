@@ -67,6 +67,13 @@ func _initialize() -> void:
 		if a == "sleep":
 			root.get_node("GameState").sleeping = true
 			root.get_node("GameState").changed.emit()
+		if a.begins_with("event="):
+			var gs = root.get_node("GameState")
+			gs.person.age_minutes = gs.years_to_minutes(30.0)
+			gs.money = 800
+			for j in 40:
+				await process_frame
+			root.get_node("Events").trigger(a.substr(6))
 		if a.begins_with("room="):
 			main._browse_room(int(a.substr(5)))
 	for i in 90:
