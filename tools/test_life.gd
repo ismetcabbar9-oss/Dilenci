@@ -23,12 +23,37 @@ func _initialize() -> void:
 	# 20 yaş, günlük kira
 	gs.person.age_minutes = 20.0 * gs.DAYS_PER_YEAR * 1440.0
 	m = gs.money
+	_fill(gs)
 	gs.simulate(24.0 * 60.0, false)
 	if gs.money != m - gs.DAILY_RENT: fails += 1; print("FAIL kira düşmedi ", m, " ", gs.money)
+	# Aile: tanışma → buluşma → evlilik → çocuk
+	gs.money = 1000
+	_fill(gs)
+	if gs.is_dead: fails += 1; print("FAIL 24 saat aç kalınca öldü (çok sert)")
+	for i in 30:
+		if gs.has_partner(): break
+		_fill(gs)
+		gs.action_socialize()
+	if not gs.has_partner(): fails += 1; print("FAIL partner bulunamadı")
+	for i in 5:
+		_fill(gs)
+		gs.action_date()
+	gs.action_marry()
+	if not gs.is_married(): fails += 1; print("FAIL evlenilemedi")
+	gs.action_have_baby()
+	gs.action_have_baby()  # bekleme süresi nedeniyle olmamalı
+	if gs.person.children.size() != 1: fails += 1; print("FAIL çocuk sayısı ", gs.person.children.size())
+	for i in 10:
+		_fill(gs)
+		gs.simulate(gs.years_to_minutes(0.11), false)
+	_fill(gs)
+	gs.action_have_baby()
+	if gs.person.children.size() != 2: fails += 1; print("FAIL ikinci çocuk")
+	if gs.person.children.is_empty() or gs.person.children[0].age_minutes < gs.years_to_minutes(1.0): fails += 1; print("FAIL çocuk büyümedi")
 	# Ölüm + miras
 	gs.person.children = [{"name": "Ece", "gender": "female", "age_minutes": 20.0 * gs.DAYS_PER_YEAR * 1440.0}]
 	gs.money = 100
-	gs.person.needs.health = 0.0
+	gs.person.age_minutes = gs.years_to_minutes(gs.person.lifespan)
 	gs.simulate(1.0, false)
 	if not gs.is_dead: fails += 1; print("FAIL ölmedi")
 	gs.continue_with_heir(0)
@@ -37,3 +62,8 @@ func _initialize() -> void:
 	gs.reset_game()
 	print("SONUÇ: ", "TÜM TESTLER GEÇTİ" if fails == 0 else "%d HATA" % fails)
 	quit(fails)
+
+
+func _fill(gs) -> void:
+	for k in gs.person.needs:
+		gs.person.needs[k] = 100.0

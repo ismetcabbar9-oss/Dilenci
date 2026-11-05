@@ -16,6 +16,22 @@ func _initialize() -> void:
 		main._open_jobs()
 		for i in 20:
 			await process_frame
+	if args.has("family"):
+		var gs = root.get_node("GameState")
+		gs.person.age_minutes = gs.years_to_minutes(34.0)
+		gs.person.partner = {"name": "Kerem" if gs.person.gender == "female" else "Ayşe",
+			"gender": "male" if gs.person.gender == "female" else "female",
+			"age_minutes": gs.years_to_minutes(35.0), "relation": 85.0, "married": true}
+		gs.person.children = [
+			{"name": "Ece", "gender": "female", "age_minutes": gs.years_to_minutes(8.0)},
+			{"name": "Can", "gender": "male", "age_minutes": gs.years_to_minutes(4.0)},
+		]
+		gs.person.job = "worker"
+		gs.money = 240
+		gs.changed.emit()
+		main._select_tab(2)
+		for i in 60:
+			await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(out)
 	quit()

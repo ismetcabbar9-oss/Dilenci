@@ -18,15 +18,25 @@ var action_buttons: Array[Button] = []
 var speed_buttons: Array[Button] = []
 var death_panel: PanelContainer
 var _msg_timer := 0.0
+var actions_grid: GridContainer
+var tab_buttons: Array[Button] = []
+var current_tab := 0
+var family_root: Node3D
+var _family_signature := ""
+
+# Eylem sekmeleri: [sekme adı, [[buton, callable], ...]]
+var tabs: Array = []
 
 
 func _ready() -> void:
 	_build_world()
 	_build_ui()
 	GameState.changed.connect(_refresh_ui)
+	GameState.changed.connect(_refresh_family)
 	GameState.message.connect(_show_message)
 	GameState.died.connect(_on_died)
 	_refresh_ui()
+	_refresh_family()
 	if GameState.is_dead:
 		_on_died("")
 
@@ -87,6 +97,35 @@ func _build_world() -> void:
 	character = CharacterScript.new()
 	character.position = HOME_POS
 	add_child(character)
+	family_root = Node3D.new()
+	add_child(family_root)
+
+
+## Eş ve çocukları odada göster (sadece aile değişince yeniden kurulur).
+func _refresh_family() -> void:
+	var p: Dictionary = GameState.person
+	var members: Array = []
+	if not p.get("partner", {}).is_empty():
+		members.append(p.partner)
+	for c in p.get("children", []):
+		members.append(c)
+	var sig := ""
+	for m in members:
+		sig += "%s:%d;" % [m.name, int(GameState.minutes_to_years(m.age_minutes))]
+	if sig == _family_signature:
+		return
+	_family_signature = sig
+	for c in family_root.get_children():
+		c.queue_free()
+	var colors := [Color(0.3, 0.6, 0.9), Color(0.4, 0.8, 0.4), Color(0.9, 0.8, 0.3), Color(0.7, 0.4, 0.9), Color(0.3, 0.8, 0.8)]
+	var slots := [Vector3(1.0, 0, 0.4), Vector3(-0.6, 0, 1.4), Vector3(0.6, 0, 1.6), Vector3(-1.4, 0, 1.0), Vector3(1.6, 0, 1.2)]
+	for i in mini(members.size(), slots.size()):
+		var m: Dictionary = members[i]
+		var fig = CharacterScript.new()
+		fig.setup(GameState.minutes_to_years(m.age_minutes), m.gender, colors[i])
+		fig.position = slots[i]
+		fig.rotation.y = -0.4 if slots[i].x > 0 else 0.4
+		family_root.add_child(fig)
 
 
 func _box(size: Vector3, pos: Vector3, color: Color) -> void:
@@ -178,32 +217,67 @@ func _build_ui() -> void:
 	msg_label.add_theme_constant_override("outline_size", 6)
 	col.add_child(msg_label)
 
-	# --- Alt panel: eylemler ---
-	var actions := GridContainer.new()
-	actions.columns = 3
-	actions.add_theme_constant_override("h_separation", 10)
-	actions.add_theme_constant_override("v_separation", 10)
-	col.add_child(actions)
-	var defs := [
-		["Ye", GameState.action_eat],
-		["Uyu / Uyan", GameState.action_sleep],
-		["Oyna", GameState.action_play],
-		["Yıkan", GameState.action_wash],
-		["Okula git", GameState.action_school],
-		["İşe git", GameState.action_work],
-		["İş bul", _open_jobs],
-		["Harçlık ver (+10)", GameState.give_money.bind(10)],
-		["Yeni oyun", _confirm_reset],
+	# --- Alt panel: sekmeli eylemler ---
+	tabs = [
+		["Bakım", [
+			["Ye", GameState.action_eat],
+			["Uyu / Uyan", GameState.action_sleep],
+			["Oyna", GameState.action_play],
+			["Yıkan", GameState.action_wash],
+		]],
+		["Kariyer", [
+			["Okula git", GameState.action_school],
+			["İşe git", GameState.action_work],
+			["İş bul", _open_jobs],
+		]],
+		["Aile", [
+			["Dışarı çık", GameState.action_socialize],
+			["Buluşma", GameState.action_date],
+			["Evlen", GameState.action_marry],
+			["Çocuk sahibi ol", GameState.action_have_baby],
+		]],
+		["Diğer", [
+			["Harçlık ver (+10)", GameState.give_money.bind(10)],
+			["Yeni oyun", _confirm_reset],
+		]],
 	]
-	for d in defs:
-		var b := _button(d[0], 22)
+	var tab_row := HBoxContainer.new()
+	tab_row.add_theme_constant_override("separation", 6)
+	col.add_child(tab_row)
+	for i in tabs.size():
+		var tb := _button(tabs[i][0], 22)
+		tb.toggle_mode = true
+		tb.custom_minimum_size.y = 56
+		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tb.pressed.connect(_select_tab.bind(i))
+		tab_row.add_child(tb)
+		tab_buttons.append(tb)
+	actions_grid = GridContainer.new()
+	actions_grid.columns = 2
+	actions_grid.add_theme_constant_override("h_separation", 10)
+	actions_grid.add_theme_constant_override("v_separation", 10)
+	actions_grid.custom_minimum_size.y = 170
+	col.add_child(actions_grid)
+	_select_tab(0)
+
+	_build_death_panel(layer)
+
+
+func _select_tab(index: int) -> void:
+	current_tab = index
+	for i in tab_buttons.size():
+		tab_buttons[i].set_pressed_no_signal(i == index)
+	for c in actions_grid.get_children():
+		c.queue_free()
+	action_buttons.clear()
+	for d in tabs[index][1]:
+		var b := _button(d[0], 24)
 		b.custom_minimum_size = Vector2(0, 80)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(d[1])
-		actions.add_child(b)
+		b.disabled = GameState.is_dead
+		actions_grid.add_child(b)
 		action_buttons.append(b)
-
-	_build_death_panel(layer)
 
 
 func _build_death_panel(layer: CanvasLayer) -> void:
@@ -310,10 +384,14 @@ func _refresh_ui() -> void:
 	var stage: Dictionary = GameState.get_stage()
 	var status := " (uyuyor)" if GameState.sleeping else ""
 	var job: Dictionary = GameState.get_job()
-	info_label.text = "%s, %d yaş · %s%s\nGün %d · %s · Nesil %d\nEğitim %d · Tecrübe %d · İş: %s" % [
+	var fam := "Bekâr"
+	if GameState.has_partner():
+		fam = "%s: %s (ilişki %d)" % ["Eş" if GameState.is_married() else "Sevgili", p.partner.name, int(p.partner.relation)]
+	fam += " · Çocuk: %d" % p.children.size()
+	info_label.text = "%s, %d yaş · %s%s\nGün %d · %s · Nesil %d\nEğitim %d · Tecrübe %d · İş: %s\n%s" % [
 		p.name, int(GameState.get_age_years()), stage.name, status,
 		GameState.get_day(), GameState.get_clock_text(), GameState.generation,
-		int(p.education), int(p.experience), job.get("name", "yok")]
+		int(p.education), int(p.experience), job.get("name", "yok"), fam]
 	money_label.text = "Para: %d" % GameState.money
 	for key in bars:
 		var v: float = p.needs[key]

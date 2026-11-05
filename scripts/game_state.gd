@@ -58,6 +58,15 @@ const JOBS := [
 ]
 const DAILY_RENT := 15        # 18 yaşından sonra her gün ev/fatura gideri
 const DAILY_ALLOWANCE := 5    # 18 yaşından önce ailenin verdiği günlük harçlık
+# --- Aile ---
+const OUTING_COST := 10       # Dışarı çıkıp sosyalleşmek
+const DATE_COST := 15         # Partnerle buluşma
+const WEDDING_COST := 100
+const BABY_COST := 50
+const CHILD_DAILY_COST := 5   # 18 yaşına kadar her çocuk için günlük gider
+const PARTNER_DAILY_INCOME := 10  # Evliyken eşin eve kattığı katkı
+const MAX_CHILDREN := 4
+const MIN_RELATION_TO_MARRY := 70.0
 const MALE_NAMES := ["Ali", "Mehmet", "Can", "Emre", "Murat", "Kerem", "Burak", "Yusuf"]
 const FEMALE_NAMES := ["Ayşe", "Zeynep", "Elif", "Selin", "Deniz", "Ece", "Merve", "Defne"]
 
@@ -125,7 +134,9 @@ func make_person(p_name: String, gender: String, age_years: float) -> Dictionary
 		"age_minutes": age_years * DAYS_PER_YEAR * 24.0 * 60.0,
 		"lifespan": randf_range(68.0, 88.0),
 		"needs": {"hunger": 80.0, "energy": 90.0, "fun": 70.0, "hygiene": 80.0, "health": 100.0},
+		"partner": {},    # {name, gender, age_minutes, relation, married}
 		"children": [],   # Miras için: [{name, gender, age_minutes}]
+		"last_baby_minutes": -1.0e9,
 	}
 
 
@@ -141,7 +152,17 @@ func _start_life() -> void:
 # ---------------------------------------------------------------
 # Simülasyon
 # ---------------------------------------------------------------
+## Uzun süreleri 30 dakikalık parçalara bölerek işler (bir anda çöküş olmasın).
 func simulate(minutes: float, offline: bool) -> void:
+	var left := minutes
+	while left > 0.0 and not is_dead:
+		var step := minf(left, 30.0)
+		_simulate_step(step, offline)
+		left -= step
+	changed.emit()
+
+
+func _simulate_step(minutes: float, offline: bool) -> void:
 	var hours := minutes / 60.0
 	var needs: Dictionary = person.needs
 	var day_before := get_day()
@@ -149,6 +170,10 @@ func simulate(minutes: float, offline: bool) -> void:
 	for _d in get_day() - day_before:
 		_new_day()
 	person.age_minutes += minutes
+	if not person.partner.is_empty():
+		person.partner.age_minutes += minutes
+	for c in person.children:
+		c.age_minutes += minutes
 
 	for key in DECAY_PER_HOUR:
 		var rate: float = DECAY_PER_HOUR[key]
@@ -189,19 +214,25 @@ func simulate(minutes: float, offline: bool) -> void:
 			_die("hastalık")
 		elif get_age_years() >= person.lifespan:
 			_die("yaşlılık")
-	changed.emit()
 
 
 # ---------------------------------------------------------------
 # Eylemler
 # ---------------------------------------------------------------
 func _new_day() -> void:
+	_relation_decay()
 	if get_age_years() < 18.0:
 		money += DAILY_ALLOWANCE
 		return
-	if money >= DAILY_RENT:
-		money -= DAILY_RENT
-		message.emit("Günlük ev giderleri ödendi (-%d)." % DAILY_RENT)
+	var cost := DAILY_RENT
+	for c in person.children:
+		if c.age_minutes < years_to_minutes(18.0):
+			cost += CHILD_DAILY_COST
+	if is_married():
+		money += PARTNER_DAILY_INCOME
+	if money >= cost:
+		money -= cost
+		message.emit("Günlük ev ve aile giderleri ödendi (-%d)." % cost)
 	else:
 		money = 0
 		_add_need("fun", -20.0)
@@ -302,6 +333,122 @@ func action_work() -> void:
 	message.emit("%s olarak çalıştı (+%d)." % [job.name, int(job.pay)])
 
 
+# ---------------------------------------------------------------
+# Aile
+# ---------------------------------------------------------------
+func has_partner() -> bool:
+	return not person.partner.is_empty()
+
+
+func is_married() -> bool:
+	return has_partner() and bool(person.partner.get("married", false))
+
+
+## Dışarı çık: eğlenir, bekârsa biriyle tanışabilir (18+).
+func action_socialize() -> void:
+	if not can_act():
+		return
+	if get_age_years() < 16.0:
+		_add_need("fun", 15.0)
+		_pass_time(90.0)
+		message.emit("Arkadaşlarıyla parkta oynadı.")
+		return
+	if money < OUTING_COST:
+		message.emit("Dışarı çıkmak için %d para gerekli." % OUTING_COST)
+		return
+	money -= OUTING_COST
+	_add_need("fun", 20.0)
+	_add_need("energy", -10.0)
+	_pass_time(3.0 * 60.0)
+	if not has_partner() and get_age_years() >= 18.0 and randf() < 0.45:
+		var g := "male" if person.gender == "female" else "female"
+		var age_diff := randf_range(-4.0, 4.0)
+		person.partner = {
+			"name": random_name(g),
+			"gender": g,
+			"age_minutes": maxf(years_to_minutes(18.0), person.age_minutes + years_to_minutes(age_diff)),
+			"relation": 20.0,
+			"married": false,
+		}
+		message.emit("%s ile tanıştı! Aralarında bir şeyler var." % person.partner.name)
+	else:
+		message.emit("Arkadaşlarıyla güzel vakit geçirdi (-%d)." % OUTING_COST)
+
+
+func action_date() -> void:
+	if not can_act():
+		return
+	if not has_partner():
+		message.emit("Henüz kimsesi yok. Dışarı çıkıp sosyalleşmeli.")
+		return
+	if money < DATE_COST:
+		message.emit("Buluşma için %d para gerekli." % DATE_COST)
+		return
+	money -= DATE_COST
+	person.partner.relation = minf(100.0, person.partner.relation + 15.0)
+	_add_need("fun", 15.0)
+	_pass_time(2.0 * 60.0)
+	message.emit("%s ile güzel vakit geçirdi. İlişki: %d" % [person.partner.name, int(person.partner.relation)])
+
+
+func action_marry() -> void:
+	if not can_act():
+		return
+	if not has_partner():
+		message.emit("Evlenmek için önce birini bulmalı.")
+	elif is_married():
+		message.emit("Zaten evli.")
+	elif get_age_years() < 20.0:
+		message.emit("Evlenmek için en az 20 yaşında olmalı.")
+	elif person.partner.relation < MIN_RELATION_TO_MARRY:
+		message.emit("İlişki henüz yeterince güçlü değil (%d/%d)." % [int(person.partner.relation), int(MIN_RELATION_TO_MARRY)])
+	elif money < WEDDING_COST:
+		message.emit("Düğün için %d para gerekli." % WEDDING_COST)
+	else:
+		money -= WEDDING_COST
+		person.partner.married = true
+		_add_need("fun", 40.0)
+		message.emit("%s ile evlendi! Mutluluklar!" % person.partner.name)
+	changed.emit()
+
+
+func action_have_baby() -> void:
+	if not can_act():
+		return
+	var mother_age := get_age_years() if person.gender == "female" else minutes_to_years(person.partner.get("age_minutes", 0.0))
+	if not is_married():
+		message.emit("Çocuk için önce evlenmeli.")
+	elif person.children.size() >= MAX_CHILDREN:
+		message.emit("Aile yeterince kalabalık.")
+	elif mother_age > 45.0:
+		message.emit("Artık çocuk sahibi olmak için geç.")
+	elif person.age_minutes - person.last_baby_minutes < years_to_minutes(1.0):
+		message.emit("Yeni bir bebek için biraz beklemeli.")
+	elif money < BABY_COST:
+		message.emit("Bebek masrafları için %d para gerekli." % BABY_COST)
+	else:
+		money -= BABY_COST
+		person.last_baby_minutes = person.age_minutes
+		var g := "female" if randf() < 0.5 else "male"
+		var child := {"name": random_name(g), "gender": g, "age_minutes": 0.0}
+		person.children.append(child)
+		_add_need("fun", 30.0)
+		message.emit("Bir bebekleri oldu: %s! (%s)" % [child.name, "kız" if g == "female" else "erkek"])
+	changed.emit()
+
+
+func _relation_decay() -> void:
+	if not has_partner():
+		return
+	var p: Dictionary = person.partner
+	p.relation = maxf(0.0, p.relation - (1.0 if p.married else 3.0))
+	if p.relation <= 0.0 and not p.married:
+		message.emit("%s ile ilişki bitti." % p.name)
+		person.partner = {}
+	elif p.relation < 20.0:
+		message.emit("%s ile araları soğuyor, birlikte vakit geçirmeli." % p.name)
+
+
 func get_job() -> Dictionary:
 	for j in JOBS:
 		if j.id == person.get("job", ""):
@@ -376,7 +523,8 @@ func continue_with_heir(index: int) -> void:
 		return
 	var heir: Dictionary = heirs[index]
 	var share := int(money / float(heirs.size()))
-	var next := make_person(heir.name, heir.gender, heir.age_minutes / (DAYS_PER_YEAR * 24.0 * 60.0))
+	# Çok küçükse akrabalar büyütür; oyun en az 6 yaştan devam eder.
+	var next := make_person(heir.name, heir.gender, maxf(6.0, minutes_to_years(heir.age_minutes)))
 	person = next
 	money = share
 	generation += 1
@@ -388,7 +536,15 @@ func continue_with_heir(index: int) -> void:
 # Yardımcılar
 # ---------------------------------------------------------------
 func get_age_years() -> float:
-	return person.age_minutes / (DAYS_PER_YEAR * 24.0 * 60.0)
+	return minutes_to_years(person.age_minutes)
+
+
+func years_to_minutes(years: float) -> float:
+	return years * DAYS_PER_YEAR * 24.0 * 60.0
+
+
+func minutes_to_years(minutes: float) -> float:
+	return minutes / (DAYS_PER_YEAR * 24.0 * 60.0)
 
 
 func get_stage() -> Dictionary:
@@ -453,6 +609,10 @@ func load_game() -> bool:
 			person[k] = 0.0
 	if not person.has("job"):
 		person.job = ""
+	if not person.has("partner"):
+		person.partner = {}
+	if not person.has("last_baby_minutes"):
+		person.last_baby_minutes = -1.0e9
 	money = int(data.get("money", 0))
 	gems = int(data.get("gems", 0))
 	game_minutes = float(data.get("game_minutes", 0.0))

@@ -3,6 +3,12 @@ extends Node3D
 ## Yaşa göre boyu büyür, yaşlanınca saçı ağarır, uyurken yatar.
 ## İleride Sketchfab'den gelecek gerçek bir modelle değiştirilecek.
 
+## true: oyuncunun karakteri (GameState'i izler). false: aile üyesi (setup ile ayarlanır).
+var follow_player := true
+var age_years := 30.0
+var gender := "male"
+var shirt_color := Color(0.3, 0.6, 0.9)
+
 var _body_root: Node3D
 var _head: MeshInstance3D
 var _hair_mat: StandardMaterial3D
@@ -42,7 +48,8 @@ func _ready() -> void:
 	for x in [-0.07, 0.07]:
 		_part(_sphere(0.03), eye_mat, Vector3(x, 1.57, 0.18))
 
-	GameState.changed.connect(_refresh)
+	if follow_player:
+		GameState.changed.connect(_refresh)
 	_refresh()
 	scale = Vector3.ONE * _target_scale
 
@@ -53,30 +60,45 @@ func _process(delta: float) -> void:
 	var s := lerpf(scale.x, _target_scale, clampf(delta * 2.0, 0.0, 1.0))
 	scale = Vector3.ONE * s
 
-	if GameState.sleeping:
+	if follow_player and GameState.sleeping:
 		_body_root.rotation.x = lerpf(_body_root.rotation.x, -PI / 2.0, delta * 3.0)
 		_body_root.position.y = lerpf(_body_root.position.y, 0.25, delta * 3.0)
 		_body_root.scale.y = 1.0 + sin(_time * 1.5) * 0.02  # nefes
 	else:
 		_body_root.rotation.x = lerpf(_body_root.rotation.x, 0.0, delta * 5.0)
-		var mood: float = GameState.person.needs.fun / 100.0
+		var mood: float = GameState.person.needs.fun / 100.0 if follow_player else 0.6
 		# Mutluysa hafif zıplar, mutsuzsa yavaş sallanır
 		_body_root.position.y = absf(sin(_time * (1.5 + mood * 3.0))) * 0.04 * (0.3 + mood)
 		_body_root.scale.y = 1.0
 		_head.rotation.y = sin(_time * 0.7) * 0.25
 
 
+## Aile üyesi figürü için.
+func setup(p_age_years: float, p_gender: String, p_shirt: Color) -> void:
+	follow_player = false
+	age_years = p_age_years
+	gender = p_gender
+	shirt_color = p_shirt
+	if is_inside_tree():
+		_refresh()
+
+
 func _refresh() -> void:
-	var age := GameState.get_age_years()
+	if follow_player:
+		age_years = GameState.get_age_years()
+		gender = GameState.person.get("gender", "male")
+	var age := age_years
 	# 6 yaşta ~0.6, 18 yaşta 1.0 boy
-	_target_scale = clampf(0.45 + age * 0.03, 0.6, 1.0)
+	_target_scale = clampf(0.3 + age * 0.04, 0.35, 1.0)
 	if age > 60.0:
 		_target_scale -= minf((age - 60.0) * 0.003, 0.06)  # yaşlılıkta hafif kısalma
 	# Saç rengi: yaşlandıkça grileşir
 	var grey := clampf((age - 45.0) / 30.0, 0.0, 1.0)
 	_hair_mat.albedo_color = Color(0.25, 0.15, 0.08).lerp(Color(0.85, 0.85, 0.85), grey)
-	var female: bool = GameState.person.get("gender", "male") == "female"
-	_shirt_mat.albedo_color = Color(0.85, 0.35, 0.55) if female else Color(0.95, 0.6, 0.2)
+	if follow_player:
+		_shirt_mat.albedo_color = Color(0.85, 0.35, 0.55) if gender == "female" else Color(0.95, 0.6, 0.2)
+	else:
+		_shirt_mat.albedo_color = shirt_color
 
 
 func _part(mesh: Mesh, mat: Material, pos: Vector3) -> MeshInstance3D:
