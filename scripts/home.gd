@@ -1,18 +1,58 @@
 extends Node3D
-## Ev: GameState.home_level'e göre odaları kurar (Sketchfab modelleri, bkz. CREDITS.md).
-## Seviye 0: tek odalı "Low Poly Room". Seviye 1+: "Low Poly Isometric Rooms" paketinden
-## odalar yan yana dizilir. Karakterin eyleme göre gideceği noktaları verir.
+## Ev: GameState.home_level'e göre odaları kurar. Odalar kodla kurulur (renkli zemin + iki duvar),
+## mobilyalar Quaternius "Ultimate Home Interior" paketinden (CC0). Karakterin eyleme göre gideceği
+## noktaları ve yatağın yerini verir.
 
-const SMALL_ROOM := "res://assets/models/rooms/room_small.glb"
-const HOUSE := "res://assets/models/rooms/rooms_house.glb"
-# Paket içindeki oda düğümleri
-const HOUSE_ROOMS := {
-	"cinema": "Room1", "study": "Room2", "living": "Room3", "kitchen": "Room4",
-	"bedroom": "Room5", "bathroom": "Room6", "gym": "Room7",
+const FURNITURE := "res://assets/models/interior/%s.fbx"
+const ROOM_SIZE := 3.6
+const WALL_H := 2.6
+## Oda tasarımları: duvar/zemin rengi ve mobilyalar [model, x, z, dönüş°, en büyük boyut(m), y, etiket]
+## Koordinatlar oda merkezine göre; arka duvar z=-1.8, sol duvar x=-1.8; kamera önden (+z) bakar.
+const ROOM_DESIGNS := {
+	"small": {"wall": Color(0.98, 0.55, 0.66), "floor": Color(0.86, 0.66, 0.46), "items": [
+		["Bed_Single", -1.15, -0.8, 0, 2.0, 0, "bed"], ["NightStand_1", -0.2, -1.5, 0, 0.55],
+		["Drawer_1", 0.95, -1.5, 0, 1.25], ["Window_Large1", 0.95, -1.76, 0, 1.2, 1.15],
+		["Carpet_Round", 0.35, 0.35, 0, 1.5], ["Houseplant_1", 1.5, -0.6, 0, 0.6],
+		["Table_RoundSmall", -1.25, 0.95, 0, 0.75], ["Chair_1", -0.75, 1.0, -90, 0.85],
+		["Light_Floor1", -1.55, 0.2, 0, 1.6]]},
+	"kitchen": {"wall": Color(0.5, 0.85, 0.7), "floor": Color(0.95, 0.92, 0.86), "items": [
+		["Kitchen_Cabinet1", -1.4, -1.45, 0, 0.75], ["Kitchen_Oven", -0.68, -1.45, 0, 0.75],
+		["Kitchen_Sink", 0.04, -1.45, 0, 0.75], ["Kitchen_3Drawers", 0.76, -1.45, 0, 0.75],
+		["Kitchen_Fridge", 1.45, -1.42, 0, 1.9], ["Window_Small1", 0.04, -1.76, 0, 0.9, 1.35],
+		["Table_RoundSmall", 0.2, 0.55, 0, 1.0], ["Chair_2", -0.45, 0.55, 90, 0.85], ["Chair_2", 0.85, 0.55, -90, 0.85],
+		["Houseplant_3", -1.5, 1.2, 0, 0.7]]},
+	"living": {"wall": Color(1.0, 0.74, 0.45), "floor": Color(0.8, 0.6, 0.42), "items": [
+		["Carpet_2", 0.1, -0.3, 0, 2.6], ["Couch_Large1", 0.1, -1.35, 0, 2.3],
+		["Table_RoundSmall", 0.1, -0.25, 0, 0.9], ["Fireplace", -1.55, -0.1, 90, 1.5],
+		["Light_Floor1", 1.5, -1.5, 0, 1.7], ["Houseplant_2", 1.5, -0.7, 0, 0.8],
+		["Window_Large1", 0.1, -1.76, 0, 1.5, 1.35], ["Couch_Small1", 1.3, 0.6, -90, 1.1]]},
+	"bedroom": {"wall": Color(0.66, 0.6, 0.95), "floor": Color(0.86, 0.7, 0.52), "items": [
+		["Carpet_1", 0.0, 0.2, 0, 2.2], ["Bed_King", -0.1, -0.75, 0, 2.3, 0, "bed"],
+		["NightStand_1", -1.3, -1.5, 0, 0.55], ["NightStand_1", 1.1, -1.5, 0, 0.55],
+		["Drawer_2", -1.55, 0.8, 90, 1.4], ["Window_Large1", -1.76, 0.8, 90, 1.2, 1.35],
+		["Houseplant_5", 1.5, 0.9, 0, 0.7]]},
+	"bathroom": {"wall": Color(0.5, 0.78, 0.98), "floor": Color(0.96, 0.97, 1.0), "items": [
+		["Bathroom_Bathtub", -0.95, -1.2, 0, 1.7], ["Bathroom_Toilet", 0.55, -1.5, 0, 0.75],
+		["Bathroom_Sink", 1.35, -1.55, 0, 0.75], ["Bathroom_Mirror1", 1.35, -1.76, 0, 0.6, 1.25],
+		["Bathroom_WashingMachine", -1.5, 0.6, 90, 0.7], ["Bathroom_Towel", -1.76, 1.25, 90, 0.5, 1.0],
+		["Carpet_Round", 0.4, 0.3, 0, 1.1], ["Houseplant_3", 1.5, 1.2, 0, 0.6]]},
+	"study": {"wall": Color(0.6, 0.86, 0.5), "floor": Color(0.82, 0.64, 0.45), "items": [
+		["Bookshelf", -1.55, -0.6, 90, 1.9], ["Table_RoundLarge", 0.3, -1.25, 0, 1.6],
+		["Chair_1", 0.3, -0.6, 180, 0.9], ["Light_Desk", 0.85, -1.4, 0, 0.45, 0.78],
+		["Shelf_1", 1.45, -1.5, 0, 1.5], ["Window_Small1", 0.3, -1.76, 0, 0.9, 1.45],
+		["Houseplant_5", -1.4, 1.2, 0, 0.7], ["Carpet_1", 0.3, 0.3, 0, 1.8]]},
+	"gym": {"wall": Color(1.0, 0.82, 0.3), "floor": Color(0.62, 0.8, 0.95), "items": [
+		["Carpet_2", 0.0, 0.0, 0, 2.8], ["Couch_Small1", -1.45, -0.2, 90, 1.1],
+		["Shelf_Small1", 0.6, -1.76, 0, 1.2, 1.3], ["Stool", 0.4, -0.2, 0, 0.5], ["Stool", 0.9, 0.3, 0, 0.5],
+		["Houseplant_2", 1.5, -1.5, 0, 0.8], ["Light_Floor1", -1.5, -1.5, 0, 1.6]]},
+	"cinema": {"wall": Color(0.36, 0.64, 0.68), "floor": Color(0.62, 0.42, 0.3), "items": [
+		["Bookshelf", -0.9, -1.55, 0, 1.9], ["Bookshelf", 0.2, -1.55, 0, 1.9], ["Fireplace", -1.55, 0.3, 90, 1.5],
+		["Couch_Medium1", 0.9, 0.4, -90, 1.7], ["Carpet_Round", 0.0, 0.3, 0, 1.6],
+		["Light_Chandelier", 0.0, 0.2, 0, 0.8, 1.7], ["Houseplant_1", 1.5, -1.5, 0, 0.7]]},
 }
 const ROOM_NAMES := {
 	"small": "Oda", "kitchen": "Mutfak", "living": "Oturma odası", "bedroom": "Yatak odası",
-	"bathroom": "Banyo", "study": "Çalışma odası", "gym": "Spor odası", "cinema": "Hobi odası",
+	"bathroom": "Banyo", "study": "Çalışma odası", "gym": "Oyun odası", "cinema": "Kütüphane",
 	"garden": "Bahçe", "school": "Okul", "office": "İşyeri",
 }
 # Hangi eylem hangi odada yapılır (ilk bulunan oda kullanılır)
@@ -67,10 +107,7 @@ func build(level: int, luxury: Array = []) -> void:
 		_garden = null
 	rooms.clear()
 	var ids: Array = GameState.HOMES[level].rooms
-	if ids.has("small"):
-		_build_small()
-	else:
-		_build_house(ids)
+	_build_rooms(ids)
 	if not luxury.is_empty():
 		_build_garden(luxury)
 	if places.is_empty():
@@ -217,58 +254,63 @@ func place_spot(id: String) -> Vector3:
 	return places[id].center + PLACES[id].spot
 
 
-func _build_small() -> void:
-	_instance = load(SMALL_ROOM).instantiate()
+## Odaları yan yana kurar: renkli zemin, arka ve sol duvar (süpürgelik ve korniş), mobilyalar.
+func _build_rooms(ids: Array) -> void:
+	_instance = Node3D.new()
 	add_child(_instance)
-	# Model santimetre ölçeğinde gelir (~320 birim); ~3.4 m genişliğe ölçekle.
-	var box := _aabb(_instance)
-	_instance.scale = Vector3.ONE * (3.4 / maxf(box.size.x, 0.01))
-	box = _aabb(_instance)
-	# Zemini y=0'a, merkezi orijine al.
-	_instance.global_position += Vector3(-box.get_center().x, FLOOR_Y - (box.position.y + box.size.y * 0.077), -box.get_center().z)
-	box = _aabb(_instance)
-	rooms.append({
-		"id": "small",
-		"center": Vector3(box.get_center().x, FLOOR_Y, box.get_center().z),
-		"size": box.size,
-		# Yatak sağ duvarda, arka duvardan öne uzanıyor (ayak ucu öne bakar)
-		"bed": Vector3(box.end.x - 0.62, FLOOR_Y + 0.42, box.position.z + 1.95),
-		"bed_yaw": 0.0,
-	})
-
-
-func _build_house(ids: Array) -> void:
-	_instance = load(HOUSE).instantiate()
-	add_child(_instance)
-	var all_rooms := {}
-	for n in _instance.find_children("Room*", "Node3D", true, false):
-		all_rooms[n.name] = n
-	# Kullanılmayan odaları gizle, kullanılanları yan yana diz
-	var used := []
-	for id in ids:
-		used.append(HOUSE_ROOMS[id])
-	for name in all_rooms:
-		all_rooms[name].visible = used.has(name)
 	var count := ids.size()
 	for i in count:
-		var node: Node3D = all_rooms[HOUSE_ROOMS[ids[i]]]
-		var box := _aabb(node)
-		var target_center := Vector3((i - (count - 1) / 2.0) * ROOM_SPACING, 0, 0)
-		var delta := Vector3(target_center.x - box.get_center().x, FLOOR_Y - (box.position.y + 0.1), target_center.z - box.get_center().z)
-		node.global_position += delta
-		box = _aabb(node)
-		var room := {"id": ids[i], "center": Vector3(box.get_center().x, FLOOR_Y, box.get_center().z), "size": box.size, "bed": Vector3.INF, "bed_yaw": 0.0}
-		var bed := node.find_child("Bed*", true, false) as Node3D
-		if bed:
-			var bb := _aabb(bed)
-			if bb.size.x > bb.size.z:
-				# Yatak yan duruyor: baş sağ duvarda (+x), ayaklar solda
-				room.bed = Vector3(bb.position.x + 0.25, bb.end.y - 0.32, bb.get_center().z + 0.3)
-				room.bed_yaw = -PI / 2.0
-			else:
-				# Baş arka duvarda (-z), ayaklar önde
-				room.bed = Vector3(bb.get_center().x, bb.end.y - 0.2, bb.end.z - 0.2)
+		var id: String = ids[i]
+		var d: Dictionary = ROOM_DESIGNS.get(id, ROOM_DESIGNS.small)
+		var c := Vector3((i - (count - 1) / 2.0) * ROOM_SPACING, FLOOR_Y, 0.0)
+		var h := ROOM_SIZE / 2.0
+		var wall: Color = d.wall
+		_room_box(Vector3(ROOM_SIZE, 0.14, ROOM_SIZE), c + Vector3(0, -0.07, 0), d.floor, 0.85)
+		_room_box(Vector3(ROOM_SIZE, WALL_H, 0.14), c + Vector3(0, WALL_H / 2.0, -h - 0.07), wall, 0.95)
+		_room_box(Vector3(0.14, WALL_H, ROOM_SIZE + 0.14), c + Vector3(-h - 0.07, WALL_H / 2.0, -0.07), wall.darkened(0.08), 0.95)
+		# Süpürgelik ve üst korniş (beyaz şeritler)
+		_room_box(Vector3(ROOM_SIZE, 0.14, 0.05), c + Vector3(0, 0.07, -h + 0.02), Color(1, 1, 1), 0.6)
+		_room_box(Vector3(0.05, 0.14, ROOM_SIZE), c + Vector3(-h + 0.02, 0.07, 0), Color(1, 1, 1), 0.6)
+		_room_box(Vector3(ROOM_SIZE + 0.16, 0.1, 0.2), c + Vector3(0, WALL_H, -h - 0.07), wall.lightened(0.35), 0.6)
+		_room_box(Vector3(0.2, 0.1, ROOM_SIZE + 0.2), c + Vector3(-h - 0.07, WALL_H, -0.07), wall.lightened(0.35), 0.6)
+		var room := {"id": id, "center": c, "size": Vector3(ROOM_SIZE, WALL_H, ROOM_SIZE), "bed": Vector3.INF, "bed_yaw": 0.0}
+		for it in d.items:
+			var n := _place_furniture(it, c)
+			if it.size() > 6 and it[6] == "bed" and n:
+				var bb := _aabb(n)
+				# Yatak: baş arka duvarda (-z), ayaklar önde; karakter yatağın üstüne uzanır
+				room.bed = Vector3(bb.get_center().x, bb.end.y - 0.22, bb.end.z - 0.3)
+				room.bed_yaw = 0.0
 		rooms.append(room)
+
+
+## Mobilyayı yerleştir: en büyük boyutuna ölçekle, zemine (veya verilen yüksekliğe) oturt.
+func _place_furniture(it: Array, c: Vector3) -> Node3D:
+	var path := FURNITURE % it[0]
+	if not ResourceLoader.exists(path):
+		return null
+	var holder := Node3D.new()
+	_instance.add_child(holder)
+	var m: Node3D = load(path).instantiate()
+	holder.add_child(m)
+	holder.rotation.y = deg_to_rad(float(it[3]))
+	var box := _aabb(holder)
+	var k := float(it[4]) / maxf(maxf(box.size.x, box.size.z), maxf(box.size.y, 0.001))
+	holder.scale = Vector3.ONE * k
+	box = _aabb(holder)
+	var y := float(it[5]) if it.size() > 5 else 0.0
+	holder.global_position += Vector3(c.x + float(it[1]) - box.get_center().x, FLOOR_Y + y - box.position.y, c.z + float(it[2]) - box.get_center().z)
+	return holder
+
+
+func _room_box(size: Vector3, pos: Vector3, color: Color, rough: float) -> void:
+	var mi := MeshInstance3D.new()
+	var m := BoxMesh.new()
+	m.size = size
+	mi.mesh = m
+	mi.material_override = _mat(color, rough)
+	mi.position = pos
+	_instance.add_child(mi)
 
 
 func get_room(id: String) -> Dictionary:
@@ -296,9 +338,9 @@ func room_index(id: String) -> int:
 ## Odada durulacak nokta (açık taraf: +x ve +z, duvarlar -z tarafında).
 # Odaya göre karakterin ana durma noktası (eşyalardan uzak)
 const ROOM_STAND := {
-	"small": Vector3(-0.3, 0, 0.9), "living": Vector3(-1.0, 0, 1.3), "kitchen": Vector3(0.0, 0, 1.0),
-	"bedroom": Vector3(-0.9, 0, 1.2), "bathroom": Vector3(-0.6, 0, 1.2), "study": Vector3(-0.5, 0, 1.2),
-	"gym": Vector3(0.2, 0, 1.2), "cinema": Vector3(-0.4, 0, 1.3),
+	"small": Vector3(0.35, 0, 0.45), "living": Vector3(-0.35, 0, 0.75), "kitchen": Vector3(-0.6, 0, -0.65),
+	"bedroom": Vector3(0.7, 0, 0.75), "bathroom": Vector3(0.4, 0, 0.3), "study": Vector3(0.95, 0, -0.45),
+	"gym": Vector3(0.0, 0, 0.45), "cinema": Vector3(-0.2, 0, 0.6),
 }
 
 

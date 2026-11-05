@@ -57,6 +57,13 @@ var _event_modal: Control
 var guide: Node
 var _guide_targets := {}    # Oyuncu oklarla gezerken kamerayı karaktere bağlama
 var _was_sleeping := false
+# Yakın plan kamera: 0 = oda görünümü, 1 = karakterin yüzü
+var _zoom := 0.0
+var _zoom_target := 0.0
+var _auto_zoom_timer := 0.0
+var zoom_button: ClayButton
+var mood_bubble: Sprite3D
+var _mood_time := 0.0
 var _away_place := ""        # "school" / "office": karakter evin dışında
 var _away_timer := 0.0
 var _away_return_kind := ""
@@ -117,11 +124,26 @@ func _process(delta: float) -> void:
 		camera.look_at(camera.position - CAM_OFFSET + CAM_LOOK)
 	elif not home.rooms.is_empty():
 		var c: Vector3 = home.rooms[clampi(_focus_room, 0, home.rooms.size() - 1)].center
-		var desired := c + CAM_OFFSET
-		camera.position = camera.position.lerp(desired, clampf(delta * 3.0, 0.0, 1.0))
-		camera.look_at(camera.position - CAM_OFFSET + CAM_LOOK)
+		# Eylem sırasında kısa otomatik yakın plan
+		if _auto_zoom_timer > 0.0:
+			_auto_zoom_timer -= delta
+		var z_goal := maxf(_zoom_target, 0.85 if _auto_zoom_timer > 0.0 else 0.0)
+		if _manual_focus:
+			z_goal = 0.0
+		_zoom = lerpf(_zoom, z_goal, clampf(delta * 4.0, 0.0, 1.0))
+		var room_pos := c + CAM_OFFSET
+		var room_look := c + CAM_LOOK
+		var h: float = character.scale.y * character._model_height
+		var cp: Vector3 = character.global_position
+		# Karakter, üst panelin altında kalan görünür alanın ortasına gelecek şekilde
+		var close_pos := cp + Vector3(0.6, h * 1.0 + 0.7, 2.7 + h * 0.8)
+		var close_look := cp + Vector3(0, h * 0.9 + 0.1, 0)
+		var desired := room_pos.lerp(close_pos, _zoom)
+		camera.position = camera.position.lerp(desired, clampf(delta * 4.0, 0.0, 1.0))
+		camera.look_at(room_look.lerp(close_look, _zoom))
 
 	_update_daylight()
+	_update_mood_bubble(delta)
 	if _event_card_timer > 0.0:
 		_event_card_timer -= delta
 		if _event_card_timer <= 0.0 and is_instance_valid(_event_card):
@@ -168,6 +190,13 @@ func _build_world() -> void:
 
 	character = CharacterScript.new()
 	add_child(character)
+	mood_bubble = Sprite3D.new()
+	mood_bubble.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	mood_bubble.pixel_size = 0.0025
+	mood_bubble.no_depth_test = true
+	mood_bubble.render_priority = 10
+	mood_bubble.visible = false
+	add_child(mood_bubble)
 	family_root = Node3D.new()
 	add_child(family_root)
 
@@ -228,6 +257,7 @@ func _on_acted(kind: String) -> void:
 		room_label.text = "%s · %s" % [home.ROOM_NAMES[_away_place], GameState.person.name]
 		return
 	_return_home_now()
+	_auto_zoom_timer = 3.2  # Yürüyüp eylemi yaparken yakın plan
 	var r: Dictionary = home.room_for_action(kind)
 	_char_room = home.room_index(r.id)
 	_char_target = home.stand_spot(r)
@@ -248,6 +278,58 @@ func _return_home() -> void:
 func _return_home_now() -> void:
 	_away_place = ""
 	_away_timer = 0.0
+
+
+func _toggle_zoom() -> void:
+	_manual_focus = false
+	_zoom_target = 0.0 if _zoom_target > 0.5 else 1.0
+
+
+## Çift dokunma / iki parmakla yakınlaştırma / fare tekerleği ile yakın plan.
+func _unhandled_input(e: InputEvent) -> void:
+	if e is InputEventMagnifyGesture:
+		_manual_focus = false
+		_zoom_target = clampf(_zoom_target + (e.factor - 1.0) * 2.5, 0.0, 1.0)
+	elif e is InputEventMouseButton and e.pressed:
+		if e.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_zoom_target = clampf(_zoom_target + 0.2, 0.0, 1.0)
+		elif e.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_zoom_target = clampf(_zoom_target - 0.2, 0.0, 1.0)
+		elif e.button_index == MOUSE_BUTTON_LEFT and e.double_click:
+			_toggle_zoom()
+	elif e is InputEventScreenTouch and e.pressed and e.double_tap:
+		_toggle_zoom()
+
+
+## Başın üstündeki ruh hali balonu: en acil ihtiyaç (veya çok mutluysa gülen yüz).
+func _update_mood_bubble(delta: float) -> void:
+	_mood_time += delta
+	var n: Dictionary = GameState.person.get("needs", {})
+	var icon_name := ""
+	if not GameState.is_dead and not n.is_empty() and _away_place == "":
+		if GameState.sleeping:
+			icon_name = "mood_sleepy"
+		elif n.health < 30.0:
+			icon_name = "mood_sick"
+		elif n.hunger < 30.0:
+			icon_name = "mood_hungry"
+		elif n.energy < 25.0:
+			icon_name = "mood_sleepy"
+		elif n.hygiene < 25.0:
+			icon_name = "mood_dirty"
+		elif n.fun < 25.0:
+			icon_name = "sad"
+		elif n.fun > 85.0 and n.hunger > 60.0 and fmod(_mood_time, 12.0) < 3.0:
+			icon_name = "mood_happy"
+	mood_bubble.visible = icon_name != ""
+	if icon_name == "":
+		return
+	mood_bubble.texture = UiStyle.icon(icon_name)
+	var h: float = character.scale.y * character._model_height
+	var top := 0.35 if GameState.sleeping else h + 0.32
+	mood_bubble.global_position = character.global_position + Vector3(0, top + sin(_mood_time * 3.0) * 0.05, 0)
+	var pulse := 1.0 + sin(_mood_time * 6.0) * 0.06
+	mood_bubble.scale = Vector3.ONE * pulse
 
 
 func _browse_room(step: int) -> void:
@@ -272,11 +354,11 @@ func _update_daylight() -> void:
 	# 6:00 doğuş, 18:00 batış; gün ışığı 0..1
 	var day := clampf(sin((hour - 6.0) / 12.0 * PI), 0.0, 1.0)
 	var dusk := clampf(1.0 - absf(hour - 18.5) / 1.5, 0.0, 1.0) + clampf(1.0 - absf(hour - 6.5) / 1.5, 0.0, 1.0)
-	sun.light_energy = 0.12 + day * 0.6
+	sun.light_energy = 0.1 + day * 0.45
 	sun.light_color = Color(1, 1, 1).lerp(Color(1.0, 0.6, 0.35), clampf(dusk, 0.0, 1.0))
 	sun.rotation_degrees.x = -20.0 - day * 45.0
 	env.ambient_light_color = Color(0.35, 0.4, 0.6).lerp(Color(0.85, 0.85, 0.9), day)
-	env.ambient_light_energy = 0.3 + day * 0.15
+	env.ambient_light_energy = 0.28 + day * 0.1
 	env.background_color = Color(0.05, 0.06, 0.12).lerp(Color(0.45, 0.65, 0.85), day)
 	# Lamba karakterin odasında, karanlıkta yanar
 	lamp.light_energy = (1.0 - day) * 1.4
@@ -306,7 +388,9 @@ func _refresh_family() -> void:
 	for i in mini(members.size(), 5):
 		var m: Dictionary = members[i]
 		var fig = CharacterScript.new()
-		fig.setup(GameState.minutes_to_years(m.age_minutes), m.gender, Color.WHITE)
+		# Eş farklı kıyafetle, kardeşler farklı çeşitlerle görünsün
+		var is_partner: bool = i == 0 and not p.get("partner", {}).is_empty()
+		fig.setup(GameState.minutes_to_years(m.age_minutes), m.gender, Color.WHITE, i + 1, "alt" if is_partner else "casual")
 		fig.position = home.stand_spot(room, i + 1)
 		fig.rotation.y = randf_range(-0.6, 0.6)
 		family_root.add_child(fig)
@@ -426,8 +510,15 @@ func _build_ui() -> void:
 	prev.custom_minimum_size = Vector2(70, 56)
 	prev.pressed.connect(_browse_room.bind(-1))
 	nav.add_child(prev)
+	zoom_button = _button("", 22)
+	zoom_button.clay_color = UiStyle.CREAM
+	zoom_button.icon = UiStyle.icon("zoom_in")
+	zoom_button.add_theme_constant_override("icon_max_width", 34)
+	zoom_button.custom_minimum_size = Vector2(70, 56)
+	zoom_button.pressed.connect(_toggle_zoom)
+	nav.add_child(zoom_button)
 	room_label = _label(22)
-	room_label.custom_minimum_size.x = 380
+	room_label.custom_minimum_size.x = 300
 	room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	room_label.add_theme_color_override("font_color", Color.WHITE)
 	room_label.add_theme_color_override("font_outline_color", UiStyle.TEXT_DARK)
@@ -541,7 +632,7 @@ func _open_settings() -> void:
 		c.toggled.connect(item[2])
 		box.add_child(c)
 	var cr := _label(18)
-	cr.text = "Müzik: Kistol · Ses: Kenney, MintoDog (CC0)\n3D (CC BY 4.0): Agor_, Stas_SayHallo, IsaacTheMaverick, Brynnnnn, micaelsampaio, MaX3Dd, thcyrax, tselikov.viktor, Mrelectro09, MarkoJantti, antonmoek, vladicom08, medraphc"
+	cr.text = "Müzik: Kistol · Ses: Kenney, MintoDog (CC0)\nKarakterler ve eşyalar: Quaternius (CC0)\n3D (CC BY 4.0): MaX3Dd, thcyrax, tselikov.viktor, Mrelectro09, MarkoJantti, antonmoek, vladicom08, medraphc"
 	cr.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	cr.custom_minimum_size.x = 420
 	box.add_child(cr)

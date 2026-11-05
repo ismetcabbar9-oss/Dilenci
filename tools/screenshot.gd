@@ -84,6 +84,7 @@ func _initialize() -> void:
 				quit()
 				return
 		if a == "sleep":
+			root.get_node("GameState").person.needs.energy = 15.0
 			root.get_node("GameState").sleeping = true
 			root.get_node("GameState").changed.emit()
 		if a.begins_with("event="):
@@ -158,6 +159,10 @@ func _initialize() -> void:
 			root.get_texture().get_image().save_png(out)
 			quit()
 			return
+		if a == "zoom":
+			main._zoom_target = 1.0
+		if a.begins_with("need="):
+			root.get_node("GameState").person.needs[a.substr(5)] = 15.0
 		if a == "settings":
 			main._select_tab(5)
 			main._open_settings()
