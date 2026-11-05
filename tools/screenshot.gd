@@ -53,6 +53,24 @@ func _initialize() -> void:
 		main._open_store()
 		for i in 30:
 			await process_frame
+	for a in args:
+		if a.begins_with("home="):
+			var gs = root.get_node("GameState")
+			gs.home_level = int(a.substr(5))
+			gs.changed.emit()
+		if a.begins_with("hour="):
+			var gs = root.get_node("GameState")
+			gs.game_minutes = float(a.substr(5)) * 60.0
+		if a.begins_with("act="):
+			var gs = root.get_node("GameState")
+			gs.acted.emit(a.substr(4))
+		if a == "sleep":
+			root.get_node("GameState").sleeping = true
+			root.get_node("GameState").changed.emit()
+		if a.begins_with("room="):
+			main._browse_room(int(a.substr(5)))
+	for i in 90:
+		await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(out)
 	quit()

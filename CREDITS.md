@@ -7,5 +7,11 @@
 - **Kadın karakter** — "Casual NPC Woman | Free Low-Poly 3D Model" by **Stas_SayHallo**
   https://sketchfab.com/3d-models/48902da4e3f8494b80e349a3cb819385
   Lisans: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+- **Küçük oda** — "Low Poly Room" by **IsaacTheMaverick**
+  https://sketchfab.com/3d-models/a6bf7976f3ac401e96907aa5b8a0c1c1
+  Lisans: CC BY 4.0
+- **Ev odaları** — "Low Poly Isometric Rooms" by **Brynnnnn**
+  https://sketchfab.com/3d-models/d53af0ad289a403598ee2cb41d84608b
+  Lisans: CC BY 4.0
 
 Not: CC BY lisansı gereği bu krediler oyun içindeki "Krediler" ekranında da gösterilmelidir.

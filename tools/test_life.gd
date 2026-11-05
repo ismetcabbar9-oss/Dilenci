@@ -84,6 +84,18 @@ func _initialize() -> void:
 	if gs.businesses.size() != 4: fails += 1; print("FAIL işletmeler mirasa geçmedi")
 	if gs.is_dead or gs.person.name != "Ece" or gs.generation != 2 or gs.money != 100:
 		fails += 1; print("FAIL miras")
+	# Ev satın alma: kira yerine bakım gideri
+	gs.reset_game()
+	gs.person.age_minutes = gs.years_to_minutes(25.0)
+	gs.money = 3000
+	gs.buy_home(1)
+	if gs.home_level != 1 or gs.money != 500: fails += 1; print("FAIL ev alınamadı")
+	gs.buy_home(3)
+	if gs.home_level != 1: fails += 1; print("FAIL parasız villa alındı")
+	_fill(gs)
+	m = gs.money
+	gs.simulate(24.0 * 60.0, false)
+	if gs.money != m - gs.HOMES[1].upkeep: fails += 1; print("FAIL ev bakım gideri ", m, "->", gs.money)
 	# Mağaza / elmas
 	var st = root.get_node("Store")
 	st.reset_wallet_for_tests()

@@ -6,6 +6,7 @@ signal changed            # Herhangi bir değer değişti (UI yenilensin)
 signal stage_changed(stage: String)
 signal message(text: String)
 signal died(cause: String)
+signal acted(kind: String)  # Bir eylem yapıldı (görsel tepki için): eat, play, wash, study, work, social, date, manage
 
 const SAVE_PATH := "user://save.json"
 const SAVE_VERSION := 1
@@ -87,6 +88,14 @@ const TITLES := [
 	["Esnaf", 1, 0],
 ]
 const SURNAMES := ["Yılmaz", "Kaya", "Demir", "Şahin", "Çelik", "Aydın", "Öztürk", "Arslan", "Doğan", "Koç"]
+# --- Evler ---
+# rooms: ev modelindeki odalar (bkz. home.gd). upkeep: ev sahibiyken günlük gider (kira yerine)
+const HOMES := [
+	{"name": "Küçük oda", "cost": 0, "upkeep": DAILY_RENT, "rooms": ["small"]},
+	{"name": "Daire", "cost": 2500, "upkeep": 8, "rooms": ["kitchen", "living", "bedroom", "bathroom"]},
+	{"name": "Müstakil ev", "cost": 12000, "upkeep": 15, "rooms": ["kitchen", "living", "bedroom", "bathroom", "study"]},
+	{"name": "Villa", "cost": 45000, "upkeep": 30, "rooms": ["kitchen", "living", "bedroom", "bathroom", "study", "gym", "cinema"]},
+]
 const MALE_NAMES := ["Ali", "Mehmet", "Can", "Emre", "Murat", "Kerem", "Burak", "Yusuf"]
 const FEMALE_NAMES := ["Ayşe", "Zeynep", "Elif", "Selin", "Deniz", "Ece", "Merve", "Defne"]
 
@@ -100,6 +109,7 @@ var family_tree: Array = []      # Önceki nesillerin özeti
 var family_name: String = ""     # Soyadı (holding adı da buradan)
 ## Aile işletmeleri (nesiller boyu miras kalır): [{type, level, morale, invested}]
 var businesses: Array = []
+var home_level: int = 0          # Ailenin evi (miras kalır)
 var _last_title := ""
 var earned_titles: Array = []    # Elmas ödülü verilmiş unvanlar
 var sleeping: bool = false
@@ -140,6 +150,7 @@ func new_game() -> void:
 	generation = 1
 	family_tree = []
 	businesses = []
+	home_level = 0
 	earned_titles = []
 	family_name = SURNAMES[randi() % SURNAMES.size()]
 	_last_title = ""
@@ -256,7 +267,7 @@ func _new_day() -> void:
 		if biz_income > 0:
 			message.emit("Aile işletmeleri bugün %d kazandırdı." % biz_income)
 		return
-	var cost := DAILY_RENT
+	var cost: int = HOMES[home_level].upkeep
 	for c in person.children:
 		if c.age_minutes < years_to_minutes(18.0):
 			cost += CHILD_DAILY_COST
@@ -287,6 +298,7 @@ func action_eat() -> void:
 		return
 	money -= cost
 	_add_need("hunger", 35.0)
+	acted.emit("eat")
 	_pass_time(30.0)
 	message.emit("Karnını doyurdu." if cost == 0 else "Karnını doyurdu (-%d)." % cost)
 
@@ -308,6 +320,7 @@ func action_play() -> void:
 	_add_need("fun", 25.0)
 	_add_need("energy", -10.0)
 	_add_need("hygiene", -5.0)
+	acted.emit("play")
 	_pass_time(60.0)
 	message.emit("Eğlendi!")
 
@@ -316,6 +329,7 @@ func action_wash() -> void:
 	if not can_act():
 		return
 	_add_need("hygiene", 40.0)
+	acted.emit("wash")
 	_pass_time(20.0)
 	message.emit("Yıkandı, tertemiz.")
 
@@ -337,6 +351,7 @@ func action_school() -> void:
 	person.education = minf(100.0, person.education + 3.0)
 	_add_need("energy", -20.0)
 	_add_need("fun", -5.0)
+	acted.emit("study")
 	_pass_time(6.0 * 60.0)
 	message.emit("Okuldan döndü. Eğitim: %d" % int(person.education))
 
@@ -357,6 +372,7 @@ func action_work() -> void:
 	_add_need("energy", -3.5 * hours)
 	_add_need("fun", -1.0 * hours)
 	_add_need("hygiene", -2.0 * hours)
+	acted.emit("work")
 	_pass_time(hours * 60.0)
 	message.emit("%s olarak çalıştı (+%d)." % [job.name, int(job.pay)])
 
@@ -378,6 +394,7 @@ func action_socialize() -> void:
 		return
 	if get_age_years() < 16.0:
 		_add_need("fun", 15.0)
+		acted.emit("social")
 		_pass_time(90.0)
 		message.emit("Arkadaşlarıyla parkta oynadı.")
 		return
@@ -387,6 +404,7 @@ func action_socialize() -> void:
 	money -= OUTING_COST
 	_add_need("fun", 20.0)
 	_add_need("energy", -10.0)
+	acted.emit("social")
 	_pass_time(3.0 * 60.0)
 	if not has_partner() and get_age_years() >= 18.0 and randf() < 0.45:
 		var g := "male" if person.gender == "female" else "female"
@@ -415,6 +433,7 @@ func action_date() -> void:
 	money -= DATE_COST
 	person.partner.relation = minf(100.0, person.partner.relation + 15.0)
 	_add_need("fun", 15.0)
+	acted.emit("date")
 	_pass_time(2.0 * 60.0)
 	message.emit("%s ile güzel vakit geçirdi. İlişki: %d" % [person.partner.name, int(person.partner.relation)])
 
@@ -595,6 +614,7 @@ func action_manage() -> void:
 	person.experience += 1.0
 	_add_need("energy", -15.0)
 	_add_need("fun", -5.0)
+	acted.emit("manage")
 	_pass_time(4.0 * 60.0)
 	message.emit("İşletmelerle ilgilendi, çalışanlar motive.")
 
@@ -637,6 +657,31 @@ func _check_title() -> void:
 	if rewards.has(t) and not earned_titles.has(t):
 		earned_titles.append(t)
 		Store.add_gems(rewards[t], "%s unvanı" % t)
+
+
+# ---------------------------------------------------------------
+# Ev
+# ---------------------------------------------------------------
+func get_home() -> Dictionary:
+	return HOMES[home_level]
+
+
+func buy_home(level: int) -> void:
+	if is_dead or level <= home_level or level >= HOMES.size():
+		return
+	if get_age_years() < 18.0:
+		message.emit("Ev almak için 18 yaşında olmalı.")
+		return
+	var h: Dictionary = HOMES[level]
+	if money < int(h.cost):
+		message.emit("%s için %d para gerekli." % [h.name, int(h.cost)])
+		return
+	money -= int(h.cost)
+	home_level = level
+	_add_need("fun", 30.0)
+	message.emit("Yeni ev: %s! Hayırlı olsun." % h.name)
+	changed.emit()
+	save_game()
 
 
 func get_job() -> Dictionary:
@@ -781,6 +826,7 @@ func save_game() -> void:
 		"family_tree": family_tree,
 		"family_name": family_name,
 		"businesses": businesses,
+		"home_level": home_level,
 		"earned_titles": earned_titles,
 		"sleeping": sleeping,
 		"is_dead": is_dead,
@@ -816,6 +862,7 @@ func load_game() -> bool:
 	family_tree = data.get("family_tree", [])
 	family_name = data.get("family_name", SURNAMES[randi() % SURNAMES.size()])
 	businesses = data.get("businesses", [])
+	home_level = clampi(int(data.get("home_level", 0)), 0, HOMES.size() - 1)
 	earned_titles = data.get("earned_titles", [])
 	_last_title = get_title()
 	sleeping = bool(data.get("sleeping", false))

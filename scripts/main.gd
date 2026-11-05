@@ -2,17 +2,24 @@ extends Node3D
 ## Ana sahne: 3D oda + karakter + arayüz (kod ile kuruluyor).
 
 const CharacterScript := preload("res://scripts/character.gd")
+const HomeScript := preload("res://scripts/home.gd")
 
-const HOME_POS := Vector3(0, 0, 0.6)
-const BED_POS := Vector3(-1.1, 0.35, -0.2)
+# Kamera, odanın merkezine göre bu ofsetten bakar
+const CAM_OFFSET := Vector3(2.2, 5.6, 8.6)
+const CAM_LOOK := Vector3(0.0, 1.4, 0.5)
 
 var character: Node3D
 var camera: Camera3D
+var home: Node3D
+var sun: DirectionalLight3D
+var env: Environment
+var lamp: OmniLight3D
 
 # UI
 var info_label: Label
 var money_label: Label
 var msg_label: Label
+var room_label: Label
 var bars := {}
 var action_buttons: Array[Button] = []
 var speed_buttons: Array[Button] = []
@@ -24,6 +31,12 @@ var current_tab := 0
 var family_root: Node3D
 var _family_signature := ""
 
+var _focus_room := 0          # Kameranın baktığı oda
+var _char_room := 0           # Karakterin bulunduğu oda
+var _char_target := Vector3.ZERO
+var _manual_focus := false    # Oyuncu oklarla gezerken kamerayı karaktere bağlama
+var _was_sleeping := false
+
 # Eylem sekmeleri: [sekme adı, [[buton, callable], ...]]
 var tabs: Array = []
 
@@ -32,20 +45,44 @@ func _ready() -> void:
 	_build_world()
 	_build_ui()
 	GameState.changed.connect(_refresh_ui)
-	GameState.changed.connect(_refresh_family)
+	GameState.changed.connect(_on_state_changed)
 	GameState.message.connect(_show_message)
 	GameState.died.connect(_on_died)
+	GameState.acted.connect(_on_acted)
 	Store.wallet_changed.connect(_refresh_ui)
+	_rebuild_home()
 	_refresh_ui()
-	_refresh_family()
 	if GameState.is_dead:
 		_on_died("")
 
 
 func _process(delta: float) -> void:
-	# Uyurken karakter yatağa gider
-	var target := BED_POS if GameState.sleeping else HOME_POS
-	character.position = character.position.lerp(target, clampf(delta * 4.0, 0.0, 1.0))
+	# Karakter hedefe yürür
+	var to := _char_target - character.position
+	to.y = 0.0
+	var dist := to.length()
+	if dist > 0.05:
+		var step := minf(dist, delta * (6.0 if dist > 2.0 else 2.5))
+		character.position += to.normalized() * step
+		character.rotation.y = lerp_angle(character.rotation.y, atan2(to.x, to.z), clampf(delta * 8.0, 0.0, 1.0))
+		character.set_moving(true)
+	else:
+		character.set_moving(false)
+		# Uyurken yatak boyunca (baş arka duvara), uyanıkken kameraya dönük
+		var face: float = home.room_for_action("sleep").get("bed_yaw", 0.0) if GameState.sleeping else 0.35
+		character.rotation.y = lerp_angle(character.rotation.y, face, clampf(delta * 6.0, 0.0, 1.0))
+	character.position.y = lerpf(character.position.y, _char_target.y, clampf(delta * 5.0, 0.0, 1.0))
+
+	# Kamera odayı takip eder
+	if not _manual_focus:
+		_focus_room = _char_room
+	if not home.rooms.is_empty():
+		var c: Vector3 = home.rooms[clampi(_focus_room, 0, home.rooms.size() - 1)].center
+		var desired := c + CAM_OFFSET
+		camera.position = camera.position.lerp(desired, clampf(delta * 3.0, 0.0, 1.0))
+		camera.look_at(camera.position - CAM_OFFSET + CAM_LOOK)
+
+	_update_daylight()
 	if _msg_timer > 0.0:
 		_msg_timer -= delta
 		if _msg_timer <= 0.0:
@@ -56,53 +93,124 @@ func _process(delta: float) -> void:
 # 3D dünya
 # ---------------------------------------------------------------
 func _build_world() -> void:
-	var env := WorldEnvironment.new()
-	var e := Environment.new()
-	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.2, 0.22, 0.28)
-	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.8, 0.8, 0.85)
-	e.ambient_light_energy = 0.3
-	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.environment = e
-	add_child(env)
+	var we := WorldEnvironment.new()
+	env = Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.2, 0.22, 0.28)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.8, 0.8, 0.85)
+	env.ambient_light_energy = 0.5
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	we.environment = env
+	add_child(we)
 
-	var sun := DirectionalLight3D.new()
+	sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-55, 40, 0)
-	sun.light_energy = 0.75
+	sun.light_energy = 0.9
 	sun.shadow_enabled = true
 	add_child(sun)
 
 	camera = Camera3D.new()
-	camera.position = Vector3(0.3, 3.4, 5.6)
-	camera.fov = 50
-	camera.look_at_from_position(camera.position, Vector3(0, 0.2, -0.6))
+	camera.fov = 45
 	add_child(camera)
 
-	# Oda: zemin + iki duvar
-	_box(Vector3(6, 0.1, 8), Vector3(0, -0.05, 2), Color(0.55, 0.4, 0.28))      # zemin
-	_box(Vector3(6, 3, 0.1), Vector3(0, 1.5, -2), Color(0.42, 0.52, 0.47))       # arka duvar
-	_box(Vector3(0.1, 3, 8), Vector3(-3, 1.5, 2), Color(0.38, 0.47, 0.43))    # sol duvar
-	# Yatak
-	_box(Vector3(1.0, 0.3, 2.0), Vector3(-1.1, 0.15, -0.9), Color(0.45, 0.3, 0.2))
-	_box(Vector3(0.95, 0.12, 1.9), Vector3(-1.1, 0.36, -0.9), Color(0.9, 0.9, 1.0))
-	_box(Vector3(0.7, 0.12, 0.35), Vector3(-1.1, 0.46, -1.6), Color(1, 1, 1))  # yastık
-	# Masa
-	_box(Vector3(1.0, 0.08, 0.7), Vector3(1.3, 0.75, -1.2), Color(0.55, 0.35, 0.2))
-	for x in [0.85, 1.75]:
-		for z in [-1.5, -0.9]:
-			_box(Vector3(0.06, 0.75, 0.06), Vector3(x, 0.375, z), Color(0.5, 0.32, 0.18))
-	# Pencere (duvarda açık mavi kare)
-	_box(Vector3(1.2, 0.9, 0.02), Vector3(1.0, 1.9, -1.94), Color(0.6, 0.85, 1.0))
+	home = HomeScript.new()
+	add_child(home)
+
+	lamp = OmniLight3D.new()
+	lamp.light_color = Color(1.0, 0.8, 0.55)
+	lamp.omni_range = 5.0
+	lamp.light_energy = 0.0
+	add_child(lamp)
 
 	character = CharacterScript.new()
-	character.position = HOME_POS
 	add_child(character)
 	family_root = Node3D.new()
 	add_child(family_root)
 
 
-## Eş ve çocukları odada göster (sadece aile değişince yeniden kurulur).
+func _rebuild_home() -> void:
+	home.build(GameState.home_level)
+	_family_signature = ""
+	_refresh_family()
+	var r: Dictionary = home.room_for_action("sleep" if GameState.sleeping else "idle")
+	_char_room = home.room_index(r.id)
+	_char_target = _spot_for_current_state()
+	character.position = _char_target
+	_manual_focus = false
+	if not home.rooms.is_empty():
+		camera.position = home.rooms[_char_room].center + CAM_OFFSET
+		camera.look_at(home.rooms[_char_room].center + CAM_LOOK)
+	_update_room_label()
+
+
+func _spot_for_current_state() -> Vector3:
+	if GameState.sleeping:
+		var r: Dictionary = home.room_for_action("sleep")
+		if r.bed != Vector3.INF:
+			return r.bed
+		return home.stand_spot(r)
+	return home.stand_spot(home.rooms[_char_room])
+
+
+func _on_state_changed() -> void:
+	if home.built_level != GameState.home_level:
+		_rebuild_home()
+		return
+	_refresh_family()
+	if GameState.sleeping != _was_sleeping:
+		_was_sleeping = GameState.sleeping
+		var r: Dictionary = home.room_for_action("sleep" if GameState.sleeping else "idle")
+		_char_room = home.room_index(r.id)
+		_char_target = _spot_for_current_state()
+		_manual_focus = false
+		_update_room_label()
+
+
+func _on_acted(kind: String) -> void:
+	var r: Dictionary = home.room_for_action(kind)
+	_char_room = home.room_index(r.id)
+	_char_target = home.stand_spot(r)
+	_manual_focus = false
+	character.play_action(kind)
+	_update_room_label()
+
+
+func _browse_room(step: int) -> void:
+	if home.rooms.is_empty():
+		return
+	_manual_focus = true
+	_focus_room = wrapi(_focus_room + step, 0, home.rooms.size())
+	_update_room_label()
+
+
+func _update_room_label() -> void:
+	if room_label == null or home.rooms.is_empty():
+		return
+	var r: Dictionary = home.rooms[clampi(_focus_room if _manual_focus else _char_room, 0, home.rooms.size() - 1)]
+	room_label.text = "%s · %s" % [GameState.get_home().name, home.ROOM_NAMES.get(r.id, "")]
+
+
+## Gece-gündüz: güneş açısı, ışık rengi ve gece lambası oyun saatine göre.
+func _update_daylight() -> void:
+	var minute_of_day := fmod(GameState.game_minutes, 1440.0)
+	var hour := minute_of_day / 60.0
+	# 6:00 doğuş, 18:00 batış; gün ışığı 0..1
+	var day := clampf(sin((hour - 6.0) / 12.0 * PI), 0.0, 1.0)
+	var dusk := clampf(1.0 - absf(hour - 18.5) / 1.5, 0.0, 1.0) + clampf(1.0 - absf(hour - 6.5) / 1.5, 0.0, 1.0)
+	sun.light_energy = 0.12 + day * 0.6
+	sun.light_color = Color(1, 1, 1).lerp(Color(1.0, 0.6, 0.35), clampf(dusk, 0.0, 1.0))
+	sun.rotation_degrees.x = -20.0 - day * 45.0
+	env.ambient_light_color = Color(0.35, 0.4, 0.6).lerp(Color(0.85, 0.85, 0.9), day)
+	env.ambient_light_energy = 0.3 + day * 0.15
+	env.background_color = Color(0.05, 0.06, 0.12).lerp(Color(0.45, 0.65, 0.85), day)
+	# Lamba karakterin odasında, karanlıkta yanar
+	lamp.light_energy = (1.0 - day) * 1.4
+	if not home.rooms.is_empty():
+		lamp.position = home.rooms[clampi(_focus_room, 0, home.rooms.size() - 1)].center + Vector3(0, 2.2, 0.6)
+
+
+## Eş ve çocukları oturma odasında göster (sadece aile değişince yeniden kurulur).
 func _refresh_family() -> void:
 	var p: Dictionary = GameState.person
 	var members: Array = []
@@ -110,7 +218,7 @@ func _refresh_family() -> void:
 		members.append(p.partner)
 	for c in p.get("children", []):
 		members.append(c)
-	var sig := ""
+	var sig := "%d|" % GameState.home_level
 	for m in members:
 		sig += "%s:%d;" % [m.name, int(GameState.minutes_to_years(m.age_minutes))]
 	if sig == _family_signature:
@@ -118,28 +226,16 @@ func _refresh_family() -> void:
 	_family_signature = sig
 	for c in family_root.get_children():
 		c.queue_free()
-	var colors := [Color(0.3, 0.6, 0.9), Color(0.4, 0.8, 0.4), Color(0.9, 0.8, 0.3), Color(0.7, 0.4, 0.9), Color(0.3, 0.8, 0.8)]
-	var slots := [Vector3(1.0, 0, 0.4), Vector3(-0.6, 0, 1.4), Vector3(0.6, 0, 1.6), Vector3(-1.4, 0, 1.0), Vector3(1.6, 0, 1.2)]
-	for i in mini(members.size(), slots.size()):
+	if home.rooms.is_empty():
+		return
+	var room: Dictionary = home.room_for_action("idle")
+	for i in mini(members.size(), 5):
 		var m: Dictionary = members[i]
 		var fig = CharacterScript.new()
-		fig.setup(GameState.minutes_to_years(m.age_minutes), m.gender, colors[i])
-		fig.position = slots[i]
-		fig.rotation.y = -0.4 if slots[i].x > 0 else 0.4
+		fig.setup(GameState.minutes_to_years(m.age_minutes), m.gender, Color.WHITE)
+		fig.position = home.stand_spot(room, i + 1)
+		fig.rotation.y = randf_range(-0.6, 0.6)
 		family_root.add_child(fig)
-
-
-func _box(size: Vector3, pos: Vector3, color: Color) -> void:
-	var mi := MeshInstance3D.new()
-	var m := BoxMesh.new()
-	m.size = size
-	mi.mesh = m
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.9
-	mi.material_override = mat
-	mi.position = pos
-	add_child(mi)
 
 
 # ---------------------------------------------------------------
@@ -211,6 +307,25 @@ func _build_ui() -> void:
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(spacer)
 
+	# Oda gezinme: < Oda adı >
+	var nav := HBoxContainer.new()
+	nav.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_child(nav)
+	var prev := _button("<", 26)
+	prev.custom_minimum_size = Vector2(70, 56)
+	prev.pressed.connect(_browse_room.bind(-1))
+	nav.add_child(prev)
+	room_label = _label(22)
+	room_label.custom_minimum_size.x = 380
+	room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	room_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	room_label.add_theme_constant_override("outline_size", 6)
+	nav.add_child(room_label)
+	var nxt := _button(">", 26)
+	nxt.custom_minimum_size = Vector2(70, 56)
+	nxt.pressed.connect(_browse_room.bind(1))
+	nav.add_child(nxt)
+
 	msg_label = _label(26)
 	msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	msg_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -234,6 +349,7 @@ func _build_ui() -> void:
 		["İşletme", [
 			["İşletmelerim", _open_business],
 			["İşleri yönet", GameState.action_manage],
+			["Ev satın al", _open_homes],
 		]],
 		["Aile", [
 			["Dışarı çık", GameState.action_socialize],
@@ -449,6 +565,39 @@ func _fill_business() -> void:
 		b.disabled = not GameState.can_open_business(t.id)
 		b.pressed.connect(GameState.open_business.bind(t.id))
 		row.add_child(b)
+
+
+# --- Ev penceresi ---
+func _open_homes() -> void:
+	var w := AcceptDialog.new()
+	w.title = "Evler"
+	w.ok_button_text = "Kapat"
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	w.add_child(box)
+	var head := _label(20)
+	head.text = "Ev sahibi olunca kira yerine daha düşük bakım gideri ödenir.\nEv aileye miras kalır."
+	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	head.custom_minimum_size.x = 560
+	box.add_child(head)
+	for i in GameState.HOMES.size():
+		var h: Dictionary = GameState.HOMES[i]
+		var row := HBoxContainer.new()
+		box.add_child(row)
+		var l := _label(20)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.text = "%s — %d oda\n%s · günlük gider %d" % [h.name, h.rooms.size(), ("%d para" % h.cost) if h.cost > 0 else "başlangıç", h.upkeep]
+		row.add_child(l)
+		var b := _button("Mevcut" if i == GameState.home_level else ("Sahip" if i < GameState.home_level else "Satın al"), 20)
+		b.custom_minimum_size = Vector2(130, 64)
+		b.disabled = i <= GameState.home_level or GameState.money < int(h.cost) or GameState.get_age_years() < 18.0
+		b.pressed.connect(GameState.buy_home.bind(i))
+		b.pressed.connect(w.queue_free)
+		row.add_child(b)
+	w.confirmed.connect(w.queue_free)
+	w.canceled.connect(w.queue_free)
+	add_child(w)
+	w.popup_centered()
 
 
 # --- Mağaza penceresi ---
