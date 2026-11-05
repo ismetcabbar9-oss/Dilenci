@@ -33,11 +33,11 @@ const NEED_NAMES := {
 }
 const DECAY_PER_HOUR := {
 	"hunger": 4.0,
-	"energy": 3.0,
-	"fun": 2.5,
+	"energy": 2.2,
+	"fun": 1.8,
 	"hygiene": 2.0,
 }
-const SLEEP_ENERGY_PER_HOUR := 12.0
+const SLEEP_ENERGY_PER_HOUR := 14.0
 
 # --- Hayat evreleri (başlangıç yaşı) ---
 const STAGES := [
@@ -72,19 +72,19 @@ const MIN_RELATION_TO_MARRY := 70.0
 # --- İşletmeler ---
 # cost: kuruluş bedeli, income: seviye 1 günlük net kâr
 const BUSINESS_TYPES := [
-	{"id": "kiosk", "name": "Büfe", "cost": 300, "income": 20, "min_age": 18.0, "min_edu": 0.0, "min_exp": 0.0},
-	{"id": "cafe", "name": "Kafe", "cost": 900, "income": 55, "min_age": 20.0, "min_edu": 10.0, "min_exp": 10.0},
-	{"id": "market", "name": "Market", "cost": 2500, "income": 140, "min_age": 22.0, "min_edu": 20.0, "min_exp": 20.0},
-	{"id": "restaurant", "name": "Restoran", "cost": 6000, "income": 320, "min_age": 24.0, "min_edu": 30.0, "min_exp": 30.0},
-	{"id": "factory", "name": "Fabrika", "cost": 18000, "income": 900, "min_age": 28.0, "min_edu": 45.0, "min_exp": 50.0},
-	{"id": "tech", "name": "Teknoloji Şirketi", "cost": 50000, "income": 2400, "min_age": 30.0, "min_edu": 65.0, "min_exp": 60.0},
+	{"id": "kiosk", "name": "Büfe", "cost": 300, "income": 32, "min_age": 18.0, "min_edu": 0.0, "min_exp": 0.0},
+	{"id": "cafe", "name": "Kafe", "cost": 900, "income": 95, "min_age": 20.0, "min_edu": 10.0, "min_exp": 10.0},
+	{"id": "market", "name": "Market", "cost": 2500, "income": 240, "min_age": 22.0, "min_edu": 20.0, "min_exp": 20.0},
+	{"id": "restaurant", "name": "Restoran", "cost": 6000, "income": 540, "min_age": 24.0, "min_edu": 30.0, "min_exp": 30.0},
+	{"id": "factory", "name": "Fabrika", "cost": 12000, "income": 1100, "min_age": 28.0, "min_edu": 45.0, "min_exp": 50.0},
+	{"id": "tech", "name": "Teknoloji Şirketi", "cost": 50000, "income": 4000, "min_age": 30.0, "min_edu": 65.0, "min_exp": 60.0},
 ]
 const MAX_BUSINESS_LEVEL := 5
 const BUSINESS_SELL_RATIO := 0.6
 const MORALE_DECAY_PER_DAY := 8.0
 # Unvanlar: [ad, gereken işletme sayısı, gereken toplam şirket değeri]
 const TITLES := [
-	["Holding Sahibi", 5, 25000],
+	["Holding Sahibi", 5, 20000],
 	["İş İnsanı", 3, 3000],
 	["Esnaf", 1, 0],
 ]
@@ -155,7 +155,7 @@ func new_game() -> void:
 	earned_titles = []
 	family_name = SURNAMES[randi() % SURNAMES.size()]
 	_last_title = ""
-	game_minutes = 0.0
+	game_minutes = 8.0 * 60.0  # Hayat sabah 08:00'de başlar
 	speed_index = 1
 	var gender := "female" if randf() < 0.5 else "male"
 	person = make_person(random_name(gender), gender, START_AGE_YEARS)
@@ -217,12 +217,14 @@ func _simulate_step(minutes: float, offline: bool) -> void:
 
 	for key in DECAY_PER_HOUR:
 		var rate: float = DECAY_PER_HOUR[key]
+		if key == "fun":
+			rate *= 1.0 - 0.12 * home_level  # Güzel ev moral verir
 		if sleeping:
 			rate *= 0.4  # Uyurken ihtiyaçlar yavaş düşer
 		needs[key] = maxf(0.0, needs[key] - rate * hours)
 
 	if sleeping:
-		needs.energy = minf(100.0, needs.energy + SLEEP_ENERGY_PER_HOUR * hours)
+		needs.energy = minf(100.0, needs.energy + SLEEP_ENERGY_PER_HOUR * (1.0 + 0.15 * home_level) * hours)
 		if needs.energy >= 100.0:
 			sleeping = false
 			message.emit("%s uyandı, dinlenmiş görünüyor." % person.name)
@@ -233,9 +235,9 @@ func _simulate_step(minutes: float, offline: bool) -> void:
 		if needs[key] < 15.0:
 			low += 1
 	if low > 0:
-		needs.health = maxf(0.0, needs.health - 3.0 * low * hours)
-	elif needs.hunger > 50.0 and needs.energy > 40.0:
-		needs.health = minf(100.0, needs.health + 1.0 * hours)
+		needs.health = maxf(0.0, needs.health - 2.0 * low * hours)
+	elif needs.hunger > 30.0 and needs.energy > 25.0:
+		needs.health = minf(100.0, needs.health + 1.5 * hours)
 	# Yaşlılıkta sağlık yavaşça düşer.
 	if get_age_years() > 60.0:
 		needs.health = maxf(0.0, needs.health - 0.05 * (get_age_years() - 60.0) * hours)
@@ -299,7 +301,7 @@ func action_eat() -> void:
 		message.emit("Yemek için yeterli para yok! (%d gerekli)" % cost)
 		return
 	money -= cost
-	_add_need("hunger", 35.0)
+	_add_need("hunger", 45.0)
 	acted.emit("eat")
 	_pass_time(30.0)
 	message.emit("Karnını doyurdu." if cost == 0 else "Karnını doyurdu (-%d)." % cost)
@@ -351,7 +353,7 @@ func action_school() -> void:
 		message.emit("Okula gidemeyecek kadar yorgun.")
 		return
 	person.education = minf(100.0, person.education + 3.0)
-	_add_need("energy", -20.0)
+	_add_need("energy", -12.0)
 	_add_need("fun", -5.0)
 	acted.emit("study")
 	_pass_time(6.0 * 60.0)
@@ -371,7 +373,7 @@ func action_work() -> void:
 	var hours: float = job.hours
 	money += int(job.pay)
 	person.experience += 1.0
-	_add_need("energy", -3.5 * hours)
+	_add_need("energy", -2.5 * hours)
 	_add_need("fun", -1.0 * hours)
 	_add_need("hygiene", -2.0 * hours)
 	acted.emit("work")
@@ -542,9 +544,16 @@ func business_requirement_text(t: Dictionary) -> String:
 	return "" if miss.is_empty() else "Gerekli: " + ", ".join(miss)
 
 
+func owns_business(type_id: String) -> bool:
+	for b in businesses:
+		if b.type == type_id:
+			return true
+	return false
+
+
 func can_open_business(type_id: String) -> bool:
 	var t := get_business_type(type_id)
-	return not t.is_empty() and business_requirement_text(t) == "" and money >= int(t.cost)
+	return not t.is_empty() and not owns_business(type_id) and business_requirement_text(t) == "" and money >= int(t.cost)
 
 
 func open_business(type_id: String) -> void:
@@ -552,6 +561,9 @@ func open_business(type_id: String) -> void:
 		return
 	var t := get_business_type(type_id)
 	if t.is_empty():
+		return
+	if owns_business(type_id):
+		message.emit("Zaten bir %s var. Onu büyütebilirsin." % t.name)
 		return
 	var req := business_requirement_text(t)
 	if req != "":
@@ -762,8 +774,29 @@ func continue_with_heir(index: int) -> void:
 	var heir: Dictionary = heirs[index]
 	var share := int(money / float(heirs.size()))
 	# Çok küçükse akrabalar büyütür; oyun en az 6 yaştan devam eder.
-	var next := make_person(heir.name, heir.gender, maxf(6.0, minutes_to_years(heir.age_minutes)))
+	var heir_age := maxf(6.0, minutes_to_years(heir.age_minutes))
+	var next := make_person(heir.name, heir.gender, heir_age)
+	# Varis bu yaşa kadar kendi hayatını yaşadı: okulu, işi ve (yetişkinse) ailesi var.
+	next.education = clampf((minf(heir_age, 22.0) - 6.0) * 4.5, 0.0, 75.0)
+	next.experience = clampf((heir_age - 18.0) * 3.0, 0.0, 90.0)
+	if heir_age >= 26.0:
+		var pg := "male" if heir.gender == "female" else "female"
+		next.partner = {"name": random_name(pg), "gender": pg,
+			"age_minutes": years_to_minutes(heir_age + randf_range(-3.0, 3.0)), "relation": 70.0, "married": true}
+		# 24 yaşından itibaren yaklaşık 4 yılda bir çocuk; anne 45'ten sonra doğurmaz
+		var kid_age := heir_age - 24.0
+		while kid_age > 0.0 and next.children.size() < 3 and heir_age - kid_age <= 45.0:
+			var kg := "female" if randf() < 0.5 else "male"
+			next.children.append({"name": random_name(kg), "gender": kg, "age_minutes": years_to_minutes(kid_age)})
+			kid_age -= randf_range(2.5, 5.0)
+		next.last_baby_minutes = next.age_minutes - years_to_minutes(maxf(kid_age + 3.0, 0.0))
+	# En iyi uygun işle başlasın
 	person = next
+	var best_pay := 0
+	for j in get_available_jobs():
+		if int(j.pay) > best_pay:
+			best_pay = int(j.pay)
+			next.job = j.id
 	money = share
 	generation += 1
 	_start_life()

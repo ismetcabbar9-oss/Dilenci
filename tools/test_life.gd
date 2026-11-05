@@ -73,7 +73,7 @@ func _initialize() -> void:
 	if gs.get_title() != "Holding Sahibi": fails += 1; print("FAIL holding olunamadı: ", gs.get_title(), " ", gs.total_business_value())
 	m = gs.money
 	gs.sell_business(4)
-	if gs.businesses.size() != 4 or gs.money != m + int(18000 * 0.6): fails += 1; print("FAIL satış")
+	if gs.businesses.size() != 4 or gs.money != m + int(12000 * 0.6): fails += 1; print("FAIL satış")
 	# Ölüm + miras
 	gs.person.children = [{"name": "Ece", "gender": "female", "age_minutes": 20.0 * gs.DAYS_PER_YEAR * 1440.0}]
 	gs.money = 100

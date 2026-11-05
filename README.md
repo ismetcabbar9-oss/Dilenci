@@ -15,3 +15,5 @@ Godot 4.3+ ile `project.godot` dosyasını açın ve F5'e basın.
 ## Test
 - Mantık testi: `godot --headless -s tools/test_life.gd`
 - Ekran görüntüsü: `xvfb-run godot --rendering-method gl_compatibility --resolution 720x1280 -s tools/screenshot.gd -- cikti.png [jobs]`
+- Denge botu (bütün bir hayatı oynar, kilometre taşlarını yazar): `godot --headless -s tools/balance_bot.gd -- <tohum> <nesil>`
+- Ses testi: `godot --headless -s tools/test_audio.gd`

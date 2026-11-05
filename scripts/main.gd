@@ -38,7 +38,9 @@ var _manual_focus := false
 var _ui_layer: CanvasLayer
 var _event_card: PanelContainer
 var _event_card_timer := 0.0
-var _event_modal: Control    # Oyuncu oklarla gezerken kamerayı karaktere bağlama
+var _event_modal: Control
+var guide: Node
+var _guide_targets := {}    # Oyuncu oklarla gezerken kamerayı karaktere bağlama
 var _was_sleeping := false
 
 # Eylem sekmeleri: [sekme adı, [[buton, callable], ...]]
@@ -58,6 +60,7 @@ func _ready() -> void:
 	Events.choice_requested.connect(_show_event_choice)
 	_rebuild_home()
 	_refresh_ui()
+	guide.start_intro_if_needed.call_deferred()
 	if GameState.is_dead:
 		_on_died("")
 
@@ -268,6 +271,7 @@ func _build_ui() -> void:
 
 	# --- Üst panel: bilgi + ihtiyaçlar ---
 	var top := PanelContainer.new()
+	_guide_targets["top"] = top
 	top.add_theme_stylebox_override("panel", _panel_style())
 	col.add_child(top)
 	var top_col := VBoxContainer.new()
@@ -301,6 +305,7 @@ func _build_ui() -> void:
 
 	# Hız butonları
 	var speed_row := HBoxContainer.new()
+	_guide_targets["speed"] = speed_row
 	speed_row.alignment = BoxContainer.ALIGNMENT_END
 	top_col.add_child(speed_row)
 	var speed_texts := ["II", "1x", "5x", "20x", "60x"]
@@ -320,6 +325,7 @@ func _build_ui() -> void:
 
 	# Oda gezinme: < Oda adı >
 	var nav := HBoxContainer.new()
+	_guide_targets["nav"] = nav
 	nav.alignment = BoxContainer.ALIGNMENT_CENTER
 	col.add_child(nav)
 	var prev := _button("<", 26)
@@ -375,9 +381,13 @@ func _build_ui() -> void:
 			["Yeni oyun", _confirm_reset],
 		]],
 	]
+	var bottom := VBoxContainer.new()
+	bottom.add_theme_constant_override("separation", 10)
+	col.add_child(bottom)
+	_guide_targets["actions"] = bottom
 	var tab_row := HBoxContainer.new()
 	tab_row.add_theme_constant_override("separation", 6)
-	col.add_child(tab_row)
+	bottom.add_child(tab_row)
 	for i in tabs.size():
 		var tb := _button(tabs[i][0], 20)
 		tb.toggle_mode = true
@@ -391,10 +401,17 @@ func _build_ui() -> void:
 	actions_grid.add_theme_constant_override("h_separation", 10)
 	actions_grid.add_theme_constant_override("v_separation", 10)
 	actions_grid.custom_minimum_size.y = 170
-	col.add_child(actions_grid)
+	bottom.add_child(actions_grid)
 	_select_tab(0)
 
 	_build_death_panel(layer)
+
+	guide = preload("res://scripts/guide.gd").new()
+	guide.layer = layer
+	guide.targets = _guide_targets
+	guide.make_label = _label
+	guide.make_button = _button
+	add_child(guide)
 
 
 func _open_settings() -> void:
@@ -601,6 +618,8 @@ func _fill_business() -> void:
 		var b := _button("Kur", 20)
 		b.custom_minimum_size = Vector2(100, 64)
 		b.disabled = not GameState.can_open_business(t.id)
+		if GameState.owns_business(t.id):
+			b.text = "Sahip"
 		b.pressed.connect(GameState.open_business.bind(t.id))
 		row.add_child(b)
 
@@ -682,7 +701,7 @@ func _open_homes() -> void:
 	box.add_theme_constant_override("separation", 8)
 	w.add_child(box)
 	var head := _label(20)
-	head.text = "Ev sahibi olunca kira yerine daha düşük bakım gideri ödenir.\nEv aileye miras kalır."
+	head.text = "Ev sahibi olunca kira yerine daha düşük bakım gideri ödenir. Büyük evde daha hızlı dinlenilir ve mutluluk daha yavaş azalır. Ev aileye miras kalır."
 	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	head.custom_minimum_size.x = 560
 	box.add_child(head)

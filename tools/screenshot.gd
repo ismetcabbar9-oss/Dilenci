@@ -5,6 +5,15 @@ func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	var out: String = args[0] if args.size() > 0 else "user://shot.png"
 	var main = load("res://scenes/main.tscn").instantiate()
+	# Rehberi ekran görüntülerinde gizle ("intro" verilirse göster)
+	var cfg := ConfigFile.new()
+	cfg.load("user://settings.cfg")
+	if cfg.has_section("guide"):
+		cfg.erase_section("guide")
+	if not args.has("intro"):
+		for k in ["intro", "hungry", "tired", "dirty", "school", "teen_job", "adult", "love", "morale", "home", "old"]:
+			cfg.set_value("guide", k, true)
+	cfg.save("user://settings.cfg")
 	root.add_child(main)
 	for i in 40:
 		await process_frame
@@ -74,6 +83,14 @@ func _initialize() -> void:
 			for j in 40:
 				await process_frame
 			root.get_node("Events").trigger(a.substr(6))
+		if a.begins_with("intro="):
+			for k in int(a.substr(6)):
+				main.guide._next_step()
+		if a == "tip":
+			main.guide._seen.erase("hungry")
+			root.get_node("GameState").person.needs.hunger = 20.0
+			for j in 90:
+				await process_frame
 		if a == "settings":
 			main._select_tab(4)
 			main._open_settings()

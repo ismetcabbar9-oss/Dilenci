@@ -171,6 +171,7 @@ func set_sfx(on: bool) -> void:
 
 func _save_settings() -> void:
 	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS_PATH)  # Diğer bölümleri (rehber) korumak için önce oku
 	cfg.set_value("audio", "music", music_on)
 	cfg.set_value("audio", "sfx", sfx_on)
 	cfg.save(SETTINGS_PATH)
