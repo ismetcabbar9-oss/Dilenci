@@ -84,6 +84,26 @@ func _initialize() -> void:
 	if gs.businesses.size() != 4: fails += 1; print("FAIL işletmeler mirasa geçmedi")
 	if gs.is_dead or gs.person.name != "Ece" or gs.generation != 2 or gs.money != 100:
 		fails += 1; print("FAIL miras")
+	# Mağaza / elmas
+	var st = root.get_node("Store")
+	st.reset_wallet_for_tests()
+	gs.reset_game()
+	st.claim_daily()
+	if st.gems != 13: fails += 1; print("FAIL günlük ödül ", st.gems)
+	st.claim_daily()
+	if st.gems != 13: fails += 1; print("FAIL günlük ödül iki kez alındı")
+	gs.person.needs.hunger = 10.0
+	st.buy_item("meal")
+	if gs.person.needs.hunger != 100.0 or st.gems != 11: fails += 1; print("FAIL yemek alınamadı")
+	if st.buy_item("cash_bag"): fails += 1; print("FAIL elmas yetmeden alındı")
+	st.purchase_pack("gems_medium")
+	if st.gems != 161: fails += 1; print("FAIL paket ", st.gems)
+	var before: int = gs.money
+	st.buy_item("cash_bag")
+	if gs.money != before + 3000: fails += 1; print("FAIL para çantası")
+	gs.reset_game()
+	if st.gems != 131: fails += 1; print("FAIL yeni oyunda elmas silindi ", st.gems)
+	st.reset_wallet_for_tests()
 	gs.reset_game()
 	print("SONUÇ: ", "TÜM TESTLER GEÇTİ" if fails == 0 else "%d HATA" % fails)
 	quit(fails)

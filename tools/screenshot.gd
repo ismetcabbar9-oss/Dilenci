@@ -48,6 +48,11 @@ func _initialize() -> void:
 		main._open_business()
 		for i in 30:
 			await process_frame
+	if args.has("store"):
+		main._select_tab(4)
+		main._open_store()
+		for i in 30:
+			await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(out)
 	quit()

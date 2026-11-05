@@ -93,7 +93,6 @@ const FEMALE_NAMES := ["Ayşe", "Zeynep", "Elif", "Selin", "Deniz", "Ece", "Merv
 # --- Durum ---
 var person: Dictionary = {}      # Şu an oynanan karakter
 var money: int = 0               # Oyun içi para
-var gems: int = 0                # Özel para (ileride mağaza)
 var game_minutes: float = 0.0    # Oyun başından beri geçen toplam oyun dakikası
 var speed_index: int = 1
 var generation: int = 1
@@ -102,6 +101,7 @@ var family_name: String = ""     # Soyadı (holding adı da buradan)
 ## Aile işletmeleri (nesiller boyu miras kalır): [{type, level, morale, invested}]
 var businesses: Array = []
 var _last_title := ""
+var earned_titles: Array = []    # Elmas ödülü verilmiş unvanlar
 var sleeping: bool = false
 var is_dead: bool = false
 
@@ -137,10 +137,10 @@ func _notification(what: int) -> void:
 # ---------------------------------------------------------------
 func new_game() -> void:
 	money = 20
-	gems = 0
 	generation = 1
 	family_tree = []
 	businesses = []
+	earned_titles = []
 	family_name = SURNAMES[randi() % SURNAMES.size()]
 	_last_title = ""
 	game_minutes = 0.0
@@ -235,6 +235,8 @@ func _simulate_step(minutes: float, offline: bool) -> void:
 		_last_stage = stage
 		stage_changed.emit(stage)
 		message.emit("%s artık %s evresinde!" % [person.name, get_stage().name])
+		if not offline:
+			Store.add_gems(3, "yeni hayat evresi")
 
 	if not offline:
 		if needs.health <= 0.0:
@@ -316,13 +318,6 @@ func action_wash() -> void:
 	_add_need("hygiene", 40.0)
 	_pass_time(20.0)
 	message.emit("Yıkandı, tertemiz.")
-
-
-## Oyuncunun doğrudan "harçlık / yemek parası" vermesi (ileride mağazaya bağlanacak).
-func give_money(amount: int) -> void:
-	money += amount
-	message.emit("%d para verdin." % amount)
-	changed.emit()
 
 
 func set_speed(index: int) -> void:
@@ -637,6 +632,11 @@ func _check_title() -> void:
 		message.emit("Tebrikler! %s kuruldu!" % get_holding_name())
 	elif t != "":
 		message.emit("Yeni unvan: %s!" % t)
+	# Her unvan ailede ilk kez kazanıldığında elmas ödülü
+	var rewards := {"Esnaf": 5, "İş İnsanı": 10, "Holding Sahibi": 25}
+	if rewards.has(t) and not earned_titles.has(t):
+		earned_titles.append(t)
+		Store.add_gems(rewards[t], "%s unvanı" % t)
 
 
 func get_job() -> Dictionary:
@@ -775,13 +775,13 @@ func save_game() -> void:
 		"saved_at": Time.get_unix_time_from_system(),
 		"person": person,
 		"money": money,
-		"gems": gems,
 		"game_minutes": game_minutes,
 		"speed_index": speed_index,
 		"generation": generation,
 		"family_tree": family_tree,
 		"family_name": family_name,
 		"businesses": businesses,
+		"earned_titles": earned_titles,
 		"sleeping": sleeping,
 		"is_dead": is_dead,
 	}
@@ -810,13 +810,13 @@ func load_game() -> bool:
 	if not person.has("last_baby_minutes"):
 		person.last_baby_minutes = -1.0e9
 	money = int(data.get("money", 0))
-	gems = int(data.get("gems", 0))
 	game_minutes = float(data.get("game_minutes", 0.0))
 	speed_index = int(data.get("speed_index", 1))
 	generation = int(data.get("generation", 1))
 	family_tree = data.get("family_tree", [])
 	family_name = data.get("family_name", SURNAMES[randi() % SURNAMES.size()])
 	businesses = data.get("businesses", [])
+	earned_titles = data.get("earned_titles", [])
 	_last_title = get_title()
 	sleeping = bool(data.get("sleeping", false))
 	is_dead = bool(data.get("is_dead", false))

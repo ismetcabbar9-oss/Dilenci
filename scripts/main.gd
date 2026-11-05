@@ -35,6 +35,7 @@ func _ready() -> void:
 	GameState.changed.connect(_refresh_family)
 	GameState.message.connect(_show_message)
 	GameState.died.connect(_on_died)
+	Store.wallet_changed.connect(_refresh_ui)
 	_refresh_ui()
 	_refresh_family()
 	if GameState.is_dead:
@@ -240,8 +241,9 @@ func _build_ui() -> void:
 			["Evlen", GameState.action_marry],
 			["Çocuk sahibi ol", GameState.action_have_baby],
 		]],
-		["Diğer", [
-			["Harçlık ver (+10)", GameState.give_money.bind(10)],
+		["Mağaza", [
+			["Mağaza", _open_store],
+			["Günlük ödül", Store.claim_daily],
 			["Yeni oyun", _confirm_reset],
 		]],
 	]
@@ -449,6 +451,85 @@ func _fill_business() -> void:
 		row.add_child(b)
 
 
+# --- Mağaza penceresi ---
+var _store_box: VBoxContainer
+
+
+func _open_store() -> void:
+	var w := AcceptDialog.new()
+	w.title = "Mağaza"
+	w.ok_button_text = "Kapat"
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(600, 820)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	w.add_child(scroll)
+	_store_box = VBoxContainer.new()
+	_store_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_store_box.add_theme_constant_override("separation", 8)
+	scroll.add_child(_store_box)
+	_fill_store()
+	Store.wallet_changed.connect(_fill_store)
+	var close := func():
+		if Store.wallet_changed.is_connected(_fill_store):
+			Store.wallet_changed.disconnect(_fill_store)
+		w.queue_free()
+	w.confirmed.connect(close)
+	w.canceled.connect(close)
+	add_child(w)
+	w.popup_centered()
+
+
+func _fill_store() -> void:
+	if not is_instance_valid(_store_box):
+		return
+	for c in _store_box.get_children():
+		c.queue_free()
+	var head := _label(26)
+	head.text = "Elmas: %d" % Store.gems
+	head.add_theme_color_override("font_color", Color(0.5, 0.9, 1.0))
+	_store_box.add_child(head)
+
+	# Günlük ödül
+	var daily := HBoxContainer.new()
+	_store_box.add_child(daily)
+	var dl := _label(20)
+	dl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dl.text = "Günlük ödül: +%d elmas" % Store.next_daily_amount() if Store.can_claim_daily() else "Günlük ödül alındı · seri: %d gün" % Store.streak
+	daily.add_child(dl)
+	var db := _button("Al", 20)
+	db.custom_minimum_size = Vector2(110, 60)
+	db.disabled = not Store.can_claim_daily()
+	db.pressed.connect(Store.claim_daily)
+	daily.add_child(db)
+
+	_store_box.add_child(_section("%s için" % GameState.person.name))
+	for it in Store.ITEMS:
+		var row := HBoxContainer.new()
+		_store_box.add_child(row)
+		var l := _label(20)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.text = "%s\n%s" % [it.name, it.desc]
+		row.add_child(l)
+		var b := _button("%d elmas" % it.price, 20)
+		b.custom_minimum_size = Vector2(130, 64)
+		b.disabled = Store.gems < it.price or GameState.is_dead
+		b.pressed.connect(Store.buy_item.bind(it.id))
+		row.add_child(b)
+
+	_store_box.add_child(_section("Elmas paketleri" + (" (TEST MODU – ücretsiz)" if Store.TEST_MODE else "")))
+	for p in Store.GEM_PACKS:
+		var row := HBoxContainer.new()
+		_store_box.add_child(row)
+		var l := _label(20)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.text = "%s · %d elmas%s" % [p.name, p.gems, ("\n" + p.badge) if p.has("badge") else ""]
+		row.add_child(l)
+		var b := _button(p.price_label, 20)
+		b.custom_minimum_size = Vector2(130, 64)
+		b.pressed.connect(Store.purchase_pack.bind(p.id))
+		row.add_child(b)
+
+
 func _section(text: String) -> Label:
 	var l := _label(22)
 	l.text = text
@@ -497,7 +578,7 @@ func _refresh_ui() -> void:
 		p.name, GameState.family_name, int(GameState.get_age_years()), stage.name, status,
 		GameState.get_day(), GameState.get_clock_text(), GameState.generation,
 		int(p.education), int(p.experience), job.get("name", "yok"), fam] + biz_line
-	money_label.text = "Para: %d" % GameState.money
+	money_label.text = "Para: %d\nElmas: %d" % [GameState.money, Store.gems]
 	for key in bars:
 		var v: float = p.needs[key]
 		var bar: ProgressBar = bars[key]
