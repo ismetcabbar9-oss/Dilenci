@@ -46,6 +46,21 @@ const STAGES := [
 	{"id": "elder", "name": "Yaşlılık", "from": 60.0},
 ]
 
+# --- İşler (kariyer basamakları) ---
+# min_edu: eğitim puanı, min_exp: tecrübe (çalışılan vardiya), pay: vardiya başı maaş
+const JOBS := [
+	{"id": "paper", "name": "Gazete dağıtıcısı", "min_age": 13.0, "min_edu": 0.0, "min_exp": 0.0, "pay": 8, "hours": 3.0},
+	{"id": "waiter", "name": "Garson", "min_age": 16.0, "min_edu": 10.0, "min_exp": 0.0, "pay": 15, "hours": 6.0},
+	{"id": "worker", "name": "İşçi", "min_age": 18.0, "min_edu": 15.0, "min_exp": 5.0, "pay": 25, "hours": 8.0},
+	{"id": "master", "name": "Usta", "min_age": 20.0, "min_edu": 25.0, "min_exp": 30.0, "pay": 40, "hours": 8.0},
+	{"id": "clerk", "name": "Memur", "min_age": 20.0, "min_edu": 55.0, "min_exp": 0.0, "pay": 45, "hours": 8.0},
+	{"id": "manager", "name": "Müdür", "min_age": 25.0, "min_edu": 65.0, "min_exp": 60.0, "pay": 80, "hours": 9.0},
+]
+const DAILY_RENT := 15        # 18 yaşından sonra her gün ev/fatura gideri
+const DAILY_ALLOWANCE := 5    # 18 yaşından önce ailenin verdiği günlük harçlık
+const MALE_NAMES := ["Ali", "Mehmet", "Can", "Emre", "Murat", "Kerem", "Burak", "Yusuf"]
+const FEMALE_NAMES := ["Ayşe", "Zeynep", "Elif", "Selin", "Deniz", "Ece", "Merve", "Defne"]
+
 # --- Durum ---
 var person: Dictionary = {}      # Şu an oynanan karakter
 var money: int = 0               # Oyun içi para
@@ -94,15 +109,19 @@ func new_game() -> void:
 	family_tree = []
 	game_minutes = 0.0
 	speed_index = 1
-	person = make_person(_random_name(), START_AGE_YEARS)
+	var gender := "female" if randf() < 0.5 else "male"
+	person = make_person(random_name(gender), gender, START_AGE_YEARS)
 	_start_life()
 	message.emit.call_deferred("%s hayata başladı. Ona iyi bak!" % person.name)
 
 
-func make_person(p_name: String, age_years: float) -> Dictionary:
+func make_person(p_name: String, gender: String, age_years: float) -> Dictionary:
 	return {
 		"name": p_name,
-		"gender": "female" if randf() < 0.5 else "male",
+		"gender": gender,
+		"education": 0.0,
+		"experience": 0.0,
+		"job": "",
 		"age_minutes": age_years * DAYS_PER_YEAR * 24.0 * 60.0,
 		"lifespan": randf_range(68.0, 88.0),
 		"needs": {"hunger": 80.0, "energy": 90.0, "fun": 70.0, "hygiene": 80.0, "health": 100.0},
@@ -125,7 +144,10 @@ func _start_life() -> void:
 func simulate(minutes: float, offline: bool) -> void:
 	var hours := minutes / 60.0
 	var needs: Dictionary = person.needs
+	var day_before := get_day()
 	game_minutes += minutes
+	for _d in get_day() - day_before:
+		_new_day()
 	person.age_minutes += minutes
 
 	for key in DECAY_PER_HOUR:
@@ -173,6 +195,19 @@ func simulate(minutes: float, offline: bool) -> void:
 # ---------------------------------------------------------------
 # Eylemler
 # ---------------------------------------------------------------
+func _new_day() -> void:
+	if get_age_years() < 18.0:
+		money += DAILY_ALLOWANCE
+		return
+	if money >= DAILY_RENT:
+		money -= DAILY_RENT
+		message.emit("Günlük ev giderleri ödendi (-%d)." % DAILY_RENT)
+	else:
+		money = 0
+		_add_need("fun", -20.0)
+		message.emit("Faturalar ödenemedi! %s çok stresli." % person.name)
+
+
 func can_act() -> bool:
 	return not is_dead and not sleeping
 
@@ -231,6 +266,79 @@ func set_speed(index: int) -> void:
 	changed.emit()
 
 
+func action_school() -> void:
+	if not can_act():
+		return
+	if get_age_years() >= 18.0:
+		message.emit("Okul çağı bitti.")  # Üniversite ileride
+		return
+	if person.needs.energy < 20.0:
+		message.emit("Okula gidemeyecek kadar yorgun.")
+		return
+	person.education = minf(100.0, person.education + 3.0)
+	_add_need("energy", -20.0)
+	_add_need("fun", -5.0)
+	_pass_time(6.0 * 60.0)
+	message.emit("Okuldan döndü. Eğitim: %d" % int(person.education))
+
+
+func action_work() -> void:
+	if not can_act():
+		return
+	var job := get_job()
+	if job.is_empty():
+		message.emit("Henüz bir işi yok. 'İş bul' ile iş ara.")
+		return
+	if person.needs.energy < 25.0:
+		message.emit("İşe gidemeyecek kadar yorgun.")
+		return
+	var hours: float = job.hours
+	money += int(job.pay)
+	person.experience += 1.0
+	_add_need("energy", -3.5 * hours)
+	_add_need("fun", -1.0 * hours)
+	_add_need("hygiene", -2.0 * hours)
+	_pass_time(hours * 60.0)
+	message.emit("%s olarak çalıştı (+%d)." % [job.name, int(job.pay)])
+
+
+func get_job() -> Dictionary:
+	for j in JOBS:
+		if j.id == person.get("job", ""):
+			return j
+	return {}
+
+
+## Şartları sağlanan işler.
+func get_available_jobs() -> Array:
+	var out := []
+	for j in JOBS:
+		if get_age_years() >= j.min_age and person.education >= j.min_edu and person.experience >= j.min_exp:
+			out.append(j)
+	return out
+
+
+## Tüm işler + kilitliyse neden kilitli.
+func job_requirement_text(j: Dictionary) -> String:
+	var miss := []
+	if get_age_years() < j.min_age:
+		miss.append("%d yaş" % int(j.min_age))
+	if person.education < j.min_edu:
+		miss.append("eğitim %d" % int(j.min_edu))
+	if person.experience < j.min_exp:
+		miss.append("tecrübe %d" % int(j.min_exp))
+	return "" if miss.is_empty() else "Gerekli: " + ", ".join(miss)
+
+
+func take_job(job_id: String) -> void:
+	for j in get_available_jobs():
+		if j.id == job_id:
+			person.job = job_id
+			message.emit("Yeni iş: %s! Vardiya başı %d para." % [j.name, int(j.pay)])
+			changed.emit()
+			return
+
+
 func _add_need(key: String, amount: float) -> void:
 	person.needs[key] = clampf(person.needs[key] + amount, 0.0, 100.0)
 
@@ -268,8 +376,7 @@ func continue_with_heir(index: int) -> void:
 		return
 	var heir: Dictionary = heirs[index]
 	var share := int(money / float(heirs.size()))
-	var next := make_person(heir.name, heir.age_minutes / (DAYS_PER_YEAR * 24.0 * 60.0))
-	next.gender = heir.gender
+	var next := make_person(heir.name, heir.gender, heir.age_minutes / (DAYS_PER_YEAR * 24.0 * 60.0))
 	person = next
 	money = share
 	generation += 1
@@ -302,8 +409,8 @@ func get_clock_text() -> String:
 	return "%02d:%02d" % [minute_of_day / 60, minute_of_day % 60]
 
 
-func _random_name() -> String:
-	var names := ["Ali", "Ayşe", "Mehmet", "Zeynep", "Can", "Elif", "Emre", "Selin", "Murat", "Deniz"]
+func random_name(gender: String) -> String:
+	var names: Array = FEMALE_NAMES if gender == "female" else MALE_NAMES
 	return names[randi() % names.size()]
 
 
@@ -341,6 +448,11 @@ func load_game() -> bool:
 	if typeof(data) != TYPE_DICTIONARY or not data.has("person"):
 		return false
 	person = data.person
+	for k in ["education", "experience"]:
+		if not person.has(k):
+			person[k] = 0.0
+	if not person.has("job"):
+		person.job = ""
 	money = int(data.get("money", 0))
 	gems = int(data.get("gems", 0))
 	game_minutes = float(data.get("game_minutes", 0.0))

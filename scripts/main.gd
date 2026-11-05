@@ -48,29 +48,30 @@ func _build_world() -> void:
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.55, 0.75, 0.9)
+	e.background_color = Color(0.2, 0.22, 0.28)
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.8, 0.8, 0.85)
-	e.ambient_light_energy = 0.6
+	e.ambient_light_energy = 0.3
+	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.environment = e
 	add_child(env)
 
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50, 30, 0)
-	sun.light_energy = 1.1
+	sun.rotation_degrees = Vector3(-55, 40, 0)
+	sun.light_energy = 0.75
 	sun.shadow_enabled = true
 	add_child(sun)
 
 	camera = Camera3D.new()
-	camera.position = Vector3(0, 2.2, 4.2)
-	camera.rotation_degrees = Vector3(-15, 0, 0)
-	camera.fov = 55
+	camera.position = Vector3(0.3, 3.4, 5.6)
+	camera.fov = 50
+	camera.look_at_from_position(camera.position, Vector3(0, 0.2, -0.6))
 	add_child(camera)
 
 	# Oda: zemin + iki duvar
-	_box(Vector3(5, 0.1, 4), Vector3(0, -0.05, 0), Color(0.7, 0.55, 0.4))      # zemin
-	_box(Vector3(5, 3, 0.1), Vector3(0, 1.5, -2), Color(0.93, 0.9, 0.82))       # arka duvar
-	_box(Vector3(0.1, 3, 4), Vector3(-2.5, 1.5, 0), Color(0.88, 0.85, 0.78))    # sol duvar
+	_box(Vector3(6, 0.1, 8), Vector3(0, -0.05, 2), Color(0.55, 0.4, 0.28))      # zemin
+	_box(Vector3(6, 3, 0.1), Vector3(0, 1.5, -2), Color(0.42, 0.52, 0.47))       # arka duvar
+	_box(Vector3(0.1, 3, 8), Vector3(-3, 1.5, 2), Color(0.38, 0.47, 0.43))    # sol duvar
 	# Yatak
 	_box(Vector3(1.0, 0.3, 2.0), Vector3(-1.1, 0.15, -0.9), Color(0.45, 0.3, 0.2))
 	_box(Vector3(0.95, 0.12, 1.9), Vector3(-1.1, 0.36, -0.9), Color(0.9, 0.9, 1.0))
@@ -188,12 +189,15 @@ func _build_ui() -> void:
 		["Uyu / Uyan", GameState.action_sleep],
 		["Oyna", GameState.action_play],
 		["Yıkan", GameState.action_wash],
+		["Okula git", GameState.action_school],
+		["İşe git", GameState.action_work],
+		["İş bul", _open_jobs],
 		["Harçlık ver (+10)", GameState.give_money.bind(10)],
 		["Yeni oyun", _confirm_reset],
 	]
 	for d in defs:
-		var b := _button(d[0], 24)
-		b.custom_minimum_size = Vector2(0, 90)
+		var b := _button(d[0], 22)
+		b.custom_minimum_size = Vector2(0, 80)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(d[1])
 		actions.add_child(b)
@@ -251,6 +255,34 @@ func _on_died(_cause: String) -> void:
 	death_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
 
 
+func _open_jobs() -> void:
+	var w := AcceptDialog.new()
+	w.title = "İş ilanları"
+	w.ok_button_text = "Kapat"
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	w.add_child(box)
+	var available: Array = GameState.get_available_jobs()
+	for j in GameState.JOBS:
+		var row := HBoxContainer.new()
+		box.add_child(row)
+		var l := _label(20)
+		var req: String = GameState.job_requirement_text(j)
+		l.text = "%s — %d para / %d saat\n%s" % [j.name, j.pay, int(j.hours), req if req != "" else "Başvurabilir"]
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(l)
+		var b := _button("Mevcut" if GameState.person.job == j.id else "Başvur", 20)
+		b.custom_minimum_size = Vector2(120, 60)
+		b.disabled = not available.has(j) or GameState.person.job == j.id
+		b.pressed.connect(GameState.take_job.bind(j.id))
+		b.pressed.connect(w.queue_free)
+		row.add_child(b)
+	w.confirmed.connect(w.queue_free)
+	w.canceled.connect(w.queue_free)
+	add_child(w)
+	w.popup_centered(Vector2i(520, 0))
+
+
 func _continue_heir(i: int) -> void:
 	death_panel.visible = false
 	GameState.continue_with_heir(i)
@@ -277,9 +309,11 @@ func _refresh_ui() -> void:
 	var p: Dictionary = GameState.person
 	var stage: Dictionary = GameState.get_stage()
 	var status := " (uyuyor)" if GameState.sleeping else ""
-	info_label.text = "%s, %d yaş · %s%s\nGün %d · %s · Nesil %d" % [
+	var job: Dictionary = GameState.get_job()
+	info_label.text = "%s, %d yaş · %s%s\nGün %d · %s · Nesil %d\nEğitim %d · Tecrübe %d · İş: %s" % [
 		p.name, int(GameState.get_age_years()), stage.name, status,
-		GameState.get_day(), GameState.get_clock_text(), GameState.generation]
+		GameState.get_day(), GameState.get_clock_text(), GameState.generation,
+		int(p.education), int(p.experience), job.get("name", "yok")]
 	money_label.text = "Para: %d" % GameState.money
 	for key in bars:
 		var v: float = p.needs[key]
