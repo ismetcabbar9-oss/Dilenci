@@ -44,7 +44,7 @@ func _ready() -> void:
 		["dirty", func(): return GameState.person.needs.hygiene < 25.0,
 			"Temizlik", "Biraz kirlenmiş. Bakım sekmesinden 'Yıkan'."],
 		["school", func(): return GameState.get_age_years() >= 6.5 and GameState.person.education < 3.0,
-			"Okul zamanı", "Kariyer sekmesinden 'Okula git'. Eğitim, ileride daha iyi işlerin ve işletmelerin kapısını açar."],
+			"Okul zamanı", "Kariyer sekmesinden 'Okul / Üniversite'. Eğitim, ileride daha iyi işlerin ve işletmelerin kapısını açar."],
 		["teen_job", func(): return GameState.get_age_years() >= 13.0 and GameState.person.job == "",
 			"İlk iş!", "13 yaşına girdi. Kariyer → 'İş bul' ile harçlığını kendisi kazanabilir."],
 		["adult", func(): return GameState.get_age_years() >= 18.0,

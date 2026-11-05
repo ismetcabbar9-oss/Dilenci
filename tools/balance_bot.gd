@@ -103,6 +103,17 @@ func _decide(_lw: int, _ls: int) -> void:
 	if hour < 7.0:
 		return
 
+	# Üniversite (ucuz ve faydalıysa)
+	if age >= 18.0 and age < 30.0 and gs.person.education < 100.0 and gs.money > 200 and gs.person.get("_bot_school_day", -1) != day and n.energy > 50.0:
+		gs.person["_bot_school_day"] = day
+		gs.action_school()
+		return
+	if gs.person.education >= 100.0:
+		_mark("mezun (eğitim 100)")
+	# Emeklilik
+	if age >= 65.0 and not gs.get_job().is_empty():
+		gs.retire()
+		_mark("emeklilik")
 	# Okul
 	if age < 18.0 and gs.person.get("_bot_school_day", -1) != day and hour < 14.0:
 		gs.person["_bot_school_day"] = day
@@ -156,6 +167,19 @@ func _decide(_lw: int, _ls: int) -> void:
 			gs.buy_home(lvl)
 			_mark("ev: " + gs.HOMES[lvl].name)
 			break
+
+	# Lüks ve hayır işleri (paranın %30'u kadar)
+	var go = root.get_node("Goals")
+	for it in go.LUXURY:
+		if not go.owned_luxury().has(it.id) and gs.money > it.cost * 3:
+			go.buy_luxury(it.id)
+			_mark("lüks: " + it.name)
+	for p in go.PROJECTS:
+		if not go.completed_projects().has(p.id) and gs.money > p.cost * 3:
+			go.fund_project(p.id)
+			_mark("hayır: " + p.name)
+	if gs.get_title() in ["Sanayici", "Dünya Devi"]:
+		_mark("unvan: " + gs.get_title())
 
 	# Aile
 	if not gs.has_partner():

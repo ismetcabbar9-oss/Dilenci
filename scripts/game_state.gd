@@ -52,12 +52,22 @@ const STAGES := [
 # min_edu: eğitim puanı, min_exp: tecrübe (çalışılan vardiya), pay: vardiya başı maaş
 const JOBS := [
 	{"id": "paper", "name": "Gazete dağıtıcısı", "min_age": 13.0, "min_edu": 0.0, "min_exp": 0.0, "pay": 8, "hours": 3.0},
+	{"id": "courier", "name": "Kurye", "min_age": 16.0, "min_edu": 5.0, "min_exp": 0.0, "pay": 14, "hours": 5.0},
 	{"id": "waiter", "name": "Garson", "min_age": 16.0, "min_edu": 10.0, "min_exp": 0.0, "pay": 15, "hours": 6.0},
 	{"id": "worker", "name": "İşçi", "min_age": 18.0, "min_edu": 15.0, "min_exp": 5.0, "pay": 25, "hours": 8.0},
+	{"id": "sales", "name": "Satış elemanı", "min_age": 18.0, "min_edu": 30.0, "min_exp": 0.0, "pay": 30, "hours": 8.0},
 	{"id": "master", "name": "Usta", "min_age": 20.0, "min_edu": 25.0, "min_exp": 30.0, "pay": 40, "hours": 8.0},
 	{"id": "clerk", "name": "Memur", "min_age": 20.0, "min_edu": 55.0, "min_exp": 0.0, "pay": 45, "hours": 8.0},
+	{"id": "teacher", "name": "Öğretmen", "min_age": 22.0, "min_edu": 70.0, "min_exp": 0.0, "pay": 60, "hours": 7.0},
 	{"id": "manager", "name": "Müdür", "min_age": 25.0, "min_edu": 65.0, "min_exp": 60.0, "pay": 80, "hours": 9.0},
+	{"id": "engineer", "name": "Mühendis", "min_age": 23.0, "min_edu": 80.0, "min_exp": 10.0, "pay": 95, "hours": 8.0},
+	{"id": "doctor", "name": "Doktor", "min_age": 25.0, "min_edu": 92.0, "min_exp": 20.0, "pay": 130, "hours": 10.0},
+	{"id": "gm", "name": "Genel Müdür", "min_age": 32.0, "min_edu": 75.0, "min_exp": 150.0, "pay": 180, "hours": 10.0},
+	{"id": "ceo", "name": "CEO", "min_age": 38.0, "min_edu": 85.0, "min_exp": 250.0, "pay": 300, "hours": 10.0},
 ]
+const SCHOOL_EDU_CAP := 60.0      # Lise sonu; üstü için üniversite
+const UNIVERSITY_COST := 25
+const PENSION_RATIO := 0.5        # Emekli maaşı = son maaşın yarısı (günlük)
 const DAILY_RENT := 15        # 18 yaşından sonra her gün ev/fatura gideri
 const DAILY_ALLOWANCE := 5    # 18 yaşından önce ailenin verdiği günlük harçlık
 # --- Aile ---
@@ -74,16 +84,23 @@ const MIN_RELATION_TO_MARRY := 70.0
 const BUSINESS_TYPES := [
 	{"id": "kiosk", "name": "Büfe", "cost": 300, "income": 32, "min_age": 18.0, "min_edu": 0.0, "min_exp": 0.0},
 	{"id": "cafe", "name": "Kafe", "cost": 900, "income": 95, "min_age": 20.0, "min_edu": 10.0, "min_exp": 10.0},
+	{"id": "barber", "name": "Kuaför", "cost": 1500, "income": 150, "min_age": 20.0, "min_edu": 5.0, "min_exp": 5.0},
 	{"id": "market", "name": "Market", "cost": 2500, "income": 240, "min_age": 22.0, "min_edu": 20.0, "min_exp": 20.0},
 	{"id": "restaurant", "name": "Restoran", "cost": 6000, "income": 540, "min_age": 24.0, "min_edu": 30.0, "min_exp": 30.0},
 	{"id": "factory", "name": "Fabrika", "cost": 12000, "income": 1100, "min_age": 28.0, "min_edu": 45.0, "min_exp": 50.0},
+	{"id": "hotel", "name": "Otel", "cost": 25000, "income": 2100, "min_age": 30.0, "min_edu": 50.0, "min_exp": 70.0},
 	{"id": "tech", "name": "Teknoloji Şirketi", "cost": 50000, "income": 4000, "min_age": 30.0, "min_edu": 65.0, "min_exp": 60.0},
+	{"id": "construction", "name": "İnşaat Şirketi", "cost": 80000, "income": 6000, "min_age": 32.0, "min_edu": 60.0, "min_exp": 90.0},
+	{"id": "bank", "name": "Banka", "cost": 250000, "income": 17000, "min_age": 35.0, "min_edu": 80.0, "min_exp": 150.0},
+	{"id": "airline", "name": "Havayolu", "cost": 1000000, "income": 60000, "min_age": 40.0, "min_edu": 85.0, "min_exp": 200.0},
 ]
 const MAX_BUSINESS_LEVEL := 5
 const BUSINESS_SELL_RATIO := 0.6
 const MORALE_DECAY_PER_DAY := 8.0
 # Unvanlar: [ad, gereken işletme sayısı, gereken toplam şirket değeri]
 const TITLES := [
+	["Dünya Devi", 10, 1500000],
+	["Sanayici", 8, 150000],
 	["Holding Sahibi", 5, 20000],
 	["İş İnsanı", 3, 3000],
 	["Esnaf", 1, 0],
@@ -113,6 +130,8 @@ var businesses: Array = []
 var home_level: int = 0          # Ailenin evi (miras kalır)
 var _last_title := ""
 var earned_titles: Array = []    # Elmas ödülü verilmiş unvanlar
+## Hedefler verisi (Goals autoload'u yönetir): luxury, projects, achievements, bonus, legacy
+var goals: Dictionary = {}
 var sleeping: bool = false
 var is_dead: bool = false
 
@@ -151,6 +170,7 @@ func new_game() -> void:
 	generation = 1
 	family_tree = []
 	businesses = []
+	goals = {}
 	home_level = 0
 	earned_titles = []
 	family_name = SURNAMES[randi() % SURNAMES.size()]
@@ -237,7 +257,7 @@ func _simulate_step(minutes: float, offline: bool) -> void:
 	if low > 0:
 		needs.health = maxf(0.0, needs.health - 2.0 * low * hours)
 	elif needs.hunger > 30.0 and needs.energy > 25.0:
-		needs.health = minf(100.0, needs.health + 1.5 * hours)
+		needs.health = minf(100.0, needs.health + (1.5 + 0.5 * family_bonus("hospital")) * hours)
 	# Yaşlılıkta sağlık yavaşça düşer.
 	if get_age_years() > 60.0:
 		needs.health = maxf(0.0, needs.health - 0.05 * (get_age_years() - 60.0) * hours)
@@ -265,6 +285,8 @@ func _simulate_step(minutes: float, offline: bool) -> void:
 # ---------------------------------------------------------------
 func _new_day() -> void:
 	_relation_decay()
+	if int(person.get("pension", 0)) > 0:
+		money += int(person.pension)
 	var biz_income := _collect_business_income()
 	if get_age_years() < 18.0:
 		money += DAILY_ALLOWANCE
@@ -346,13 +368,29 @@ func set_speed(index: int) -> void:
 func action_school() -> void:
 	if not can_act():
 		return
-	if get_age_years() >= 18.0:
-		message.emit("Okul çağı bitti.")  # Üniversite ileride
-		return
 	if person.needs.energy < 20.0:
-		message.emit("Okula gidemeyecek kadar yorgun.")
+		message.emit("Derse gidemeyecek kadar yorgun.")
 		return
-	person.education = minf(100.0, person.education + 3.0)
+	if get_age_years() >= 18.0:
+		# Üniversite: paralı, eğitimi 100'e kadar çıkarır
+		if person.education >= 100.0:
+			message.emit("Eğitimini tamamladı, öğrenecek bir şey kalmadı!")
+			return
+		if money < UNIVERSITY_COST:
+			message.emit("Üniversite dersi için %d para gerekli." % UNIVERSITY_COST)
+			return
+		money -= UNIVERSITY_COST
+		person.education = minf(100.0, person.education + 4.0)
+		_add_need("energy", -15.0)
+		_add_need("fun", -5.0)
+		acted.emit("study")
+		_pass_time(5.0 * 60.0)
+		message.emit("Üniversiteden döndü (-%d). Eğitim: %d" % [UNIVERSITY_COST, int(person.education)])
+		return
+	if person.education >= SCHOOL_EDU_CAP:
+		message.emit("Okulda öğrenebileceği her şeyi öğrendi. 18 yaşında üniversiteye gidebilir.")
+		return
+	person.education = minf(SCHOOL_EDU_CAP, person.education + 3.0 * (1.0 + 0.25 * family_bonus("school")))
 	_add_need("energy", -12.0)
 	_add_need("fun", -5.0)
 	acted.emit("study")
@@ -653,6 +691,10 @@ func get_title() -> String:
 	return ""
 
 
+func is_holding() -> bool:
+	return get_title() in ["Holding Sahibi", "Sanayici", "Dünya Devi"]
+
+
 func get_holding_name() -> String:
 	return "%s Holding" % family_name
 
@@ -662,12 +704,12 @@ func _check_title() -> void:
 	if t == _last_title:
 		return
 	_last_title = t
-	if t == "Holding Sahibi":
+	if t == "Holding Sahibi" and not earned_titles.has(t):
 		message.emit("Tebrikler! %s kuruldu!" % get_holding_name())
 	elif t != "":
 		message.emit("Yeni unvan: %s!" % t)
 	# Her unvan ailede ilk kez kazanıldığında elmas ödülü
-	var rewards := {"Esnaf": 5, "İş İnsanı": 10, "Holding Sahibi": 25}
+	var rewards := {"Esnaf": 5, "İş İnsanı": 10, "Holding Sahibi": 25, "Sanayici": 40, "Dünya Devi": 100}
 	if rewards.has(t) and not earned_titles.has(t):
 		earned_titles.append(t)
 		Store.add_gems(rewards[t], "%s unvanı" % t)
@@ -696,6 +738,22 @@ func buy_home(level: int) -> void:
 	message.emit("Yeni ev: %s! Hayırlı olsun." % h.name)
 	changed.emit()
 	save_game()
+
+
+## Emekli ol: işi bırakır, her gün emekli maaşı alır.
+func retire() -> void:
+	var job := get_job()
+	if job.is_empty():
+		return
+	person.pension = int(int(job.pay) * PENSION_RATIO)
+	person.job = ""
+	message.emit("Emekli oldu! Günlük emekli maaşı: %d" % int(person.pension))
+	changed.emit()
+
+
+## Hayır projelerinin aileye kalıcı katkısı (Goals tarafından eklenir).
+func family_bonus(key: String) -> int:
+	return int(goals.get("bonus", {}).get(key, 0))
 
 
 func get_job() -> Dictionary:
@@ -730,6 +788,7 @@ func take_job(job_id: String) -> void:
 	for j in get_available_jobs():
 		if j.id == job_id:
 			person.job = job_id
+			person.pension = 0
 			message.emit("Yeni iş: %s! Vardiya başı %d para." % [j.name, int(j.pay)])
 			changed.emit()
 			return
@@ -793,6 +852,9 @@ func continue_with_heir(index: int) -> void:
 	# En iyi uygun işle başlasın
 	person = next
 	var best_pay := 0
+	if heir_age >= 65.0:
+		next.pension = 40  # Yaşlı varis emekli olarak devralır
+		best_pay = 1 << 30
 	for j in get_available_jobs():
 		if int(j.pay) > best_pay:
 			best_pay = int(j.pay)
@@ -863,6 +925,7 @@ func save_game() -> void:
 		"businesses": businesses,
 		"home_level": home_level,
 		"earned_titles": earned_titles,
+		"goals": goals,
 		"sleeping": sleeping,
 		"is_dead": is_dead,
 	}
@@ -899,6 +962,7 @@ func load_game() -> bool:
 	businesses = data.get("businesses", [])
 	home_level = clampi(int(data.get("home_level", 0)), 0, HOMES.size() - 1)
 	earned_titles = data.get("earned_titles", [])
+	goals = data.get("goals", {})
 	_last_title = get_title()
 	sleeping = bool(data.get("sleeping", false))
 	is_dead = bool(data.get("is_dead", false))

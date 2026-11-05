@@ -16,6 +16,7 @@ config/icon="res://icon.svg"
 Store="*res://scripts/store.gd"
 GameState="*res://scripts/game_state.gd"
 Events="*res://scripts/events.gd"
+Goals="*res://scripts/goals.gd"
 Audio="*res://scripts/audio.gd"
 
 [display]

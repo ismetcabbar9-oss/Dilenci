@@ -58,7 +58,7 @@ func _initialize() -> void:
 		for i in 30:
 			await process_frame
 	if args.has("store"):
-		main._select_tab(4)
+		main._select_tab(5)
 		main._open_store()
 		for i in 30:
 			await process_frame
@@ -91,8 +91,38 @@ func _initialize() -> void:
 			root.get_node("GameState").person.needs.hunger = 20.0
 			for j in 90:
 				await process_frame
-		if a == "settings":
+		if a.begins_with("rich"):
+			var gs = root.get_node("GameState")
+			var go = root.get_node("Goals")
+			gs.person.age_minutes = gs.years_to_minutes(54.0)
+			gs.person.education = 100.0
+			gs.person.experience = 200.0
+			gs.person.job = "gm"
+			gs.generation = 2
+			gs.family_tree = [{"name": "Ayşe", "age": 78, "generation": 1, "cause": "yaşlılık", "money": 0, "title": "Holding Sahibi"}]
+			gs.money = 900000
+			for t in ["kiosk", "cafe", "barber", "market", "restaurant", "factory", "hotel"]:
+				gs.open_business(t)
+			go.buy_luxury("car")
+			go.buy_luxury("boat")
+			go.buy_luxury("summer_house")
+			go.fund_project("park")
+			go.fund_project("library")
+			go.check_achievements()
+			gs.money = 260000
+			gs.home_level = 3
+			gs.changed.emit()
 			main._select_tab(4)
+			for j in 30:
+				await process_frame
+			match a:
+				"rich=lux": main._open_luxury()
+				"rich=proj": main._open_projects()
+				"rich=ach": main._open_achievements()
+				"rich=tree": main._open_family_tree()
+				"rich=biz": main._open_business()
+		if a == "settings":
+			main._select_tab(5)
 			main._open_settings()
 		if a.begins_with("room="):
 			main._browse_room(int(a.substr(5)))

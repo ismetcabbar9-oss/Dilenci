@@ -139,6 +139,44 @@ func _initialize() -> void:
 		if not ev.pending.is_empty(): ev.choose(1)
 	if count < 10 or count > 120: fails += 1; print("FAIL olay sıklığı ", count)
 	print("200 günde olay sayısı: ", count)
+	# İçerik: üniversite, emeklilik, lüks, hayır işleri, başarımlar
+	var go = root.get_node("Goals")
+	gs.reset_game()
+	gs.person.education = 59.0
+	_fill(gs)
+	gs.action_school()
+	if gs.person.education != 60.0: fails += 1; print("FAIL okul tavanı ", gs.person.education)
+	gs.action_school()
+	if gs.person.education != 60.0: fails += 1; print("FAIL okul tavanı aşıldı")
+	gs.person.age_minutes = gs.years_to_minutes(19.0)
+	gs.money = 100
+	_fill(gs)
+	gs.action_school()
+	if gs.person.education != 64.0 or gs.money != 75: fails += 1; print("FAIL üniversite ", gs.person.education, " ", gs.money)
+	gs.person.job = "doctor"
+	gs.person.age_minutes = gs.years_to_minutes(66.0)
+	gs.retire()
+	if gs.person.job != "" or gs.person.pension != 65: fails += 1; print("FAIL emeklilik")
+	_fill(gs)
+	m = gs.money
+	gs.simulate(24.0 * 60.0, false)
+	if gs.money != m + 65 - gs.DAILY_RENT: fails += 1; print("FAIL emekli maaşı ", m, "->", gs.money)
+	gs.money = 30000
+	go.buy_luxury("car")
+	go.buy_luxury("car")
+	if go.owned_luxury() != ["car"] or gs.money != 27000: fails += 1; print("FAIL araba")
+	go.fund_project("library")
+	if go.completed_projects() != ["library"] or gs.family_bonus("school") != 1: fails += 1; print("FAIL kütüphane")
+	go.check_achievements()
+	if not go.unlocked().has("philanthropist"): fails += 1; print("FAIL başarım")
+	if go.legacy_score() <= 0: fails += 1; print("FAIL miras puanı")
+	gs.person.education = 100.0
+	gs.person.experience = 300.0
+	gs.money = 2000000
+	for t in gs.BUSINESS_TYPES:
+		gs.open_business(t.id)
+	if gs.businesses.size() != 11: fails += 1; print("FAIL yeni işletmeler ", gs.businesses.size())
+	if gs.get_title() != "Sanayici": fails += 1; print("FAIL unvan ", gs.get_title(), " ", gs.total_business_value())
 	# Mağaza / elmas
 	var st = root.get_node("Store")
 	st.reset_wallet_for_tests()

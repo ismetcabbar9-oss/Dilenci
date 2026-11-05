@@ -58,6 +58,7 @@ func _ready() -> void:
 	Store.wallet_changed.connect(_refresh_ui)
 	Events.event_happened.connect(_show_event_card)
 	Events.choice_requested.connect(_show_event_choice)
+	Goals.achievement_unlocked.connect(func(a): _show_event_card({"id": "achievement", "title": "Başarım: " + a.name, "text": a.desc, "result": "+%d elmas" % a.gems}))
 	_rebuild_home()
 	_refresh_ui()
 	guide.start_intro_if_needed.call_deferred()
@@ -279,10 +280,12 @@ func _build_ui() -> void:
 
 	var header := HBoxContainer.new()
 	top_col.add_child(header)
-	info_label = _label(26)
+	info_label = _label(24)
 	info_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # Uzun satırlar para yazısına binmesin
 	header.add_child(info_label)
-	money_label = _label(26)
+	money_label = _label(24)
+	money_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	header.add_child(money_label)
 
 	var grid := GridContainer.new()
@@ -359,9 +362,10 @@ func _build_ui() -> void:
 			["Yıkan", GameState.action_wash],
 		]],
 		["Kariyer", [
-			["Okula git", GameState.action_school],
+			["Okul / Üniversite", GameState.action_school],
 			["İşe git", GameState.action_work],
 			["İş bul", _open_jobs],
+			["Emekli ol", _confirm_retire],
 		]],
 		["İşletme", [
 			["İşletmelerim", _open_business],
@@ -373,6 +377,12 @@ func _build_ui() -> void:
 			["Buluşma", GameState.action_date],
 			["Evlen", GameState.action_marry],
 			["Çocuk sahibi ol", GameState.action_have_baby],
+		]],
+		["Hedefler", [
+			["Lüks varlıklar", _open_luxury],
+			["Hayır işleri", _open_projects],
+			["Başarımlar", _open_achievements],
+			["Aile ağacı", _open_family_tree],
 		]],
 		["Mağaza", [
 			["Mağaza", _open_store],
@@ -389,7 +399,7 @@ func _build_ui() -> void:
 	tab_row.add_theme_constant_override("separation", 6)
 	bottom.add_child(tab_row)
 	for i in tabs.size():
-		var tb := _button(tabs[i][0], 20)
+		var tb := _button(tabs[i][0], 17)
 		tb.toggle_mode = true
 		tb.custom_minimum_size.y = 56
 		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -578,7 +588,7 @@ func _fill_business() -> void:
 	var head := _label(22)
 	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	head.text = "%s · Unvan: %s\nToplam değer: %d · Para: %d" % [
-		GameState.get_holding_name() if title == "Holding Sahibi" else "%s ailesi" % GameState.family_name,
+		GameState.get_holding_name() if GameState.is_holding() else "%s ailesi" % GameState.family_name,
 		title if title != "" else "yok", GameState.total_business_value(), GameState.money]
 	_biz_box.add_child(head)
 
@@ -690,6 +700,113 @@ func _on_event_choice(i: int) -> void:
 	if is_instance_valid(_event_modal):
 		_event_modal.queue_free()
 	Events.choose(i)
+
+
+# --- Hedefler ---
+## Kaydırılabilir liste penceresi; rows: [[metin, buton yazısı, etkin mi, callable]]
+func _list_dialog(title: String, header: String, rows: Array) -> void:
+	var w := AcceptDialog.new()
+	w.title = title
+	w.ok_button_text = "Kapat"
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(600, mini(820, 140 + rows.size() * 84))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	w.add_child(scroll)
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 8)
+	scroll.add_child(box)
+	if header != "":
+		var h := _label(20)
+		h.text = header
+		h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		h.add_theme_color_override("font_color", Color(1, 0.8, 0.4))
+		box.add_child(h)
+	for r in rows:
+		var row := HBoxContainer.new()
+		box.add_child(row)
+		var l := _label(19)
+		l.text = r[0]
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(l)
+		if r[1] != "":
+			var b := _button(r[1], 18)
+			b.custom_minimum_size = Vector2(130, 64)
+			b.disabled = not r[2]
+			if r[3] is Callable:
+				b.pressed.connect(r[3])
+				b.pressed.connect(w.queue_free)
+			row.add_child(b)
+	w.confirmed.connect(w.queue_free)
+	w.canceled.connect(w.queue_free)
+	add_child(w)
+	w.popup_centered()
+
+
+func _fmt_money(v: int) -> String:
+	var s := str(v)
+	var out := ""
+	while s.length() > 3:
+		out = "." + s.right(3) + out
+		s = s.left(s.length() - 3)
+	return s + out
+
+
+func _open_luxury() -> void:
+	var rows := []
+	for it in Goals.LUXURY:
+		var owned: bool = Goals.owned_luxury().has(it.id)
+		rows.append(["%s — %s para\nPrestij +%d · her gün mutluluk +%d" % [it.name, _fmt_money(it.cost), it.prestige, int(it.fun)],
+			"Sahip" if owned else "Satın al", not owned and GameState.money >= it.cost and GameState.get_age_years() >= 18.0,
+			Goals.buy_luxury.bind(it.id)])
+	_list_dialog("Lüks varlıklar", "Para: %s · Varlıklar aileye miras kalır." % _fmt_money(GameState.money), rows)
+
+
+func _open_projects() -> void:
+	var rows := []
+	for p in Goals.PROJECTS:
+		var done: bool = Goals.completed_projects().has(p.id)
+		rows.append(["%s — %s para\n%s (+%d miras puanı, +%d elmas)" % [p.name, _fmt_money(p.cost), p.desc, p.legacy, p.gems],
+			"Tamamlandı" if done else "Bağışla", not done and GameState.money >= p.cost, Goals.fund_project.bind(p.id)])
+	_list_dialog("Hayır işleri", "Topluma katkı, aile adını nesiller boyu yaşatır. Para: %s" % _fmt_money(GameState.money), rows)
+
+
+func _open_achievements() -> void:
+	var rows := []
+	var got: Array = Goals.unlocked()
+	for a in Goals.ACHIEVEMENTS:
+		var ok: bool = got.has(a.id)
+		rows.append(["%s %s\n%s (+%d elmas)" % ["✔" if ok else "○", a.name, a.desc, a.gems], "", false, null])
+	_list_dialog("Başarımlar", "%d / %d başarım" % [got.size(), Goals.ACHIEVEMENTS.size()], rows)
+
+
+func _open_family_tree() -> void:
+	var rows := []
+	for f in GameState.family_tree:
+		rows.append(["Nesil %d · %s · %d yaş · %s%s" % [int(f.generation), f.name, int(f.age), f.cause,
+			(" · " + f.title) if f.get("title", "") != "" else ""], "", false, null])
+	rows.append(["Nesil %d · %s · %d yaş · yaşıyor%s" % [GameState.generation, GameState.person.name,
+		int(GameState.get_age_years()), (" · " + GameState.get_title()) if GameState.get_title() != "" else ""], "", false, null])
+	_list_dialog("%s ailesi" % GameState.family_name, "Aile mirası puanı: %d" % Goals.legacy_score(), rows)
+
+
+func _confirm_retire() -> void:
+	if GameState.get_job().is_empty():
+		GameState.message.emit("Emekli olacak bir işi yok.")
+		return
+	if GameState.get_age_years() < 60.0:
+		GameState.message.emit("Emekli olmak için en az 60 yaşında olmalı.")
+		return
+	var d := ConfirmationDialog.new()
+	d.dialog_text = "İşi bırakıp emekli olsun mu?\nHer gün %d emekli maaşı alır." % int(int(GameState.get_job().pay) * GameState.PENSION_RATIO)
+	d.ok_button_text = "Emekli ol"
+	d.cancel_button_text = "Vazgeç"
+	d.confirmed.connect(GameState.retire)
+	d.confirmed.connect(d.queue_free)
+	d.canceled.connect(d.queue_free)
+	add_child(d)
+	d.popup_centered()
 
 
 # --- Ev penceresi ---
@@ -841,7 +958,7 @@ func _refresh_ui() -> void:
 	if not GameState.businesses.is_empty():
 		var title: String = GameState.get_title()
 		biz_line = "\n%s · %d işletme · %s" % [
-			GameState.get_holding_name() if title == "Holding Sahibi" else "%s ailesi" % GameState.family_name,
+			GameState.get_holding_name() if GameState.is_holding() else "%s ailesi" % GameState.family_name,
 			GameState.businesses.size(), title]
 	var job: Dictionary = GameState.get_job()
 	var fam := "Bekâr"

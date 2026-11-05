@@ -248,6 +248,64 @@ func _define_events() -> void:
 				_add("fun", 50.0)
 				return "+5000 para!",
 		},
+		{
+			"id": "inheritance_far", "title": "Uzak akraba mirası", "weight": 0.6,
+			"text": "Hiç tanımadığı uzak bir akrabası {name}'e miras bıraktı!",
+			"cond": func(): return _age() >= 18.0,
+			"effect": func():
+				var amount := rng.randi_range(5, 30) * 100
+				_money(amount)
+				return "+%d para." % amount,
+		},
+		{
+			"id": "car_accident", "title": "Kaza", "weight": 0.8,
+			"text": "{name} küçük bir trafik kazası geçirdi.",
+			"cond": func(): return _age() >= 18.0,
+			"effect": func():
+				_add("health", -25.0)
+				_money(-100)
+				return "Sağlık -25, tamir masrafı -100.",
+		},
+		{
+			"id": "scholarship", "title": "Burs", "weight": 1.5,
+			"text": "{name} başarısı sayesinde burs kazandı!",
+			"cond": func(): return _age() >= 14.0 and _age() < 25.0 and GameState.person.education >= 45.0,
+			"effect": func():
+				_money(200)
+				GameState.person.education = minf(100.0, GameState.person.education + 5.0)
+				Store.add_gems(2)
+				return "+200 para, eğitim +5, +2 elmas.",
+		},
+		{
+			"id": "famous_review", "title": "Ünlü bir yorum", "weight": 1.2,
+			"text": "Ünlü bir eleştirmen {name}'in işletmesini övdü!",
+			"cond": func(): return not GameState.businesses.is_empty(),
+			"effect": func():
+				var gain := 0
+				for b in GameState.businesses:
+					b.morale = 100.0
+					gain += GameState.business_income(b)
+				_money(gain)
+				return "Tüm işletmelerin morali %%100, ekstra +%d." % gain,
+		},
+		{
+			"id": "anniversary", "title": "Yıldönümü", "weight": 1.2,
+			"text": "{name} ve {partner} evlilik yıldönümlerini kutluyor.",
+			"cond": func(): return GameState.is_married(),
+			"effect": func():
+				_add("fun", 25.0)
+				GameState.person.partner.relation = minf(100.0, GameState.person.partner.relation + 10.0)
+				return "Mutluluk +25, ilişki +10.",
+		},
+		{
+			"id": "graduation", "title": "Mezuniyet", "weight": 3.0,
+			"text": "{name} liseden mezun oldu! Aile çok gururlu.",
+			"cond": func(): return _age() >= 18.0 and _age() < 19.5 and GameState.person.education >= 50.0,
+			"effect": func():
+				_add("fun", 30.0)
+				Store.add_gems(3)
+				return "Mutluluk +30, +3 elmas.",
+		},
 		# ---------- Seçimli olaylar ----------
 		{
 			"id": "investment", "title": "Yatırım teklifi", "weight": 1.5,
@@ -349,6 +407,89 @@ func _define_events() -> void:
 					return "%s satıldı: +%d para." % [bname, price]},
 				{"label": "Reddet", "effect": func():
 					return "Aile şirketi satılık değil!"},
+			],
+		},
+		{
+			"id": "tax_audit", "title": "Vergi denetimi", "weight": 1.0,
+			"text": "Maliye {name}'in işletmelerini denetliyor. Bazı belgeler eksik çıktı.",
+			"cond": func(): return GameState.businesses.size() >= 2,
+			"options": [
+				{"label": "Avukat tut (300)", "effect": func():
+					if GameState.money < 300:
+						_money(-int(GameState.total_business_value() * 0.05))
+						return "Avukata para yetmedi, ceza ödendi."
+					_money(-300)
+					return "Avukat her şeyi yoluna koydu."},
+				{"label": "Cezayı öde (%5)", "effect": func():
+					var fine := int(GameState.total_business_value() * 0.05)
+					_money(-fine)
+					return "Ceza ödendi: -%d para." % fine},
+			],
+		},
+		{
+			"id": "fire", "title": "Yangın!", "weight": 0.7,
+			"text": "{name}'in işletmelerinden birinde yangın çıktı! Hasarı hemen onarmak masraflı.",
+			"cond": func(): return not GameState.businesses.is_empty(),
+			"options": [
+				{"label": "Hemen onar", "effect": func():
+					var b: Dictionary = GameState.businesses[rng.randi_range(0, GameState.businesses.size() - 1)]
+					var cost := int(GameState.business_upgrade_cost(b) * 0.4)
+					_money(-cost)
+					return "%s onarıldı: -%d para." % [GameState.get_business_type(b.type).name, cost]},
+				{"label": "Sigortaya bırak", "effect": func():
+					var b: Dictionary = GameState.businesses[rng.randi_range(0, GameState.businesses.size() - 1)]
+					if b.level > 1 and rng.randf() < 0.6:
+						b.level -= 1
+						return "Sigorta yetmedi, %s bir seviye geriledi." % GameState.get_business_type(b.type).name
+					b.morale = maxf(0.0, b.morale - 30.0)
+					return "Sigorta zararı karşıladı ama çalışanlar huzursuz."},
+			],
+		},
+		{
+			"id": "child_sick", "title": "Çocuk hastalandı", "weight": 1.2,
+			"text": "{child} ateşlendi. Doktora götürmek gerekebilir.",
+			"cond": func(): return not GameState.person.get("children", []).is_empty() and _age() >= 20.0,
+			"options": [
+				{"label": "Doktora götür (80)", "effect": func():
+					_money(-80)
+					_add("fun", 5.0)
+					return "%s çabucak iyileşti." % GameState.person.children[0].name},
+				{"label": "Evde bak", "effect": func():
+					_add("energy", -30.0)
+					_add("fun", -15.0)
+					return "Bütün gece başında bekledi. Enerji -30, mutluluk -15."},
+			],
+		},
+		{
+			"id": "retirement", "title": "Emeklilik", "weight": 2.0,
+			"text": "{name} artık emeklilik yaşına geldi. İşi bırakıp emekli maaşıyla dinlenmek ister mi?",
+			"cond": func(): return _age() >= 65.0 and not GameState.get_job().is_empty(),
+			"options": [
+				{"label": "Emekli ol", "effect": func():
+					GameState.retire()
+					_add("fun", 30.0)
+					return "Hayırlı emeklilikler! Emekli maaşı: %d/gün." % int(GameState.person.get("pension", 0))},
+				{"label": "Çalışmaya devam", "effect": func():
+					return "Biraz daha çalışacak."},
+			],
+		},
+		{
+			"id": "startup_offer", "title": "Ortaklık teklifi", "weight": 0.8,
+			"text": "Genç bir girişimci {name}'den 5000 para yatırım istiyor. Başarılı olursa kazanç büyük olabilir.",
+			"cond": func(): return _age() >= 25.0 and GameState.money >= 5000,
+			"options": [
+				{"label": "Yatır (5000)", "effect": func():
+					_money(-5000)
+					var r := rng.randf()
+					if r < 0.35:
+						_money(20000)
+						return "Girişim büyük başarı! +20000 para."
+					if r < 0.7:
+						_money(6000)
+						return "Makul bir kazanç: +6000 para."
+					return "Girişim battı, 5000 para gitti."},
+				{"label": "Reddet", "effect": func():
+					return "Riske girmedi."},
 			],
 		},
 	]
