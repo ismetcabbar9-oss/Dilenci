@@ -33,11 +33,16 @@ var _head_scale := 1.0
 var _leg_scale := 1.0
 var _leg_bones: Array[int] = []
 var _arm_bones: Array[int] = []   # T-pozundaki çocuk modellerinin kolları indirilir
+## Mixamo iskeletli modeller (kadın, çocuklar) için kodla animasyon: kemik adı -> indeks
+var _rig := {}
+var _is_mixamo := false
+const ACTION_SECONDS := 2.2
 var _hip_height := 0.9
 var _idle_anim := ""
 var _walk_anim := ""
 var _moving := false
 var _pending_action := ""
+var _pending_wait := 0.0
 var _action_kind := ""
 var _action_time := 0.0
 const ACTION_ANIMS := {"play": "jump", "eat": "picking", "wash": "picking"}
@@ -96,6 +101,8 @@ func _load_model(model_key: String) -> void:
 	_spine_bone = -1
 	_leg_bones.clear()
 	_arm_bones.clear()
+	_rig = {}
+	_is_mixamo = false
 	_idle_anim = ""
 	_walk_anim = ""
 	var scene: PackedScene = load(MODELS.get(model_key, MODELS.male))
@@ -123,6 +130,23 @@ func _load_model(model_key: String) -> void:
 				_leg_bones.append(i)
 			if model_key.begins_with("kid_") and (n.contains("leftarm") or n.contains("rightarm")):
 				_arm_bones.append(i)
+			# Erkek modeli: üst kol "Shoulder.L/R", ön kol "Forearm.L/R"
+			if n.begins_with("shoulder.l"):
+				_rig["leftarm_"] = i
+			elif n.begins_with("shoulder.r"):
+				_rig["rightarm_"] = i
+			elif n.begins_with("forearm.l"):
+				_rig["leftforearm"] = i
+			elif n.begins_with("forearm.r"):
+				_rig["rightforearm"] = i
+			if n.contains("mixamorig"):
+				_is_mixamo = true
+				for key in ["leftupleg", "rightupleg", "leftleg_", "rightleg_", "leftarm_", "rightarm_",
+						"leftforearm", "rightforearm", "lefthand_", "righthand_", "head_", "neck_"]:
+					if n.contains(key) and not _rig.has(key):
+						_rig[key] = i
+				if n.contains("spine_") and not _rig.has("spine"):
+					_rig["spine"] = i
 
 	# Boyu normalize et: kafa kemiği yüksekliği ≈ boyun %87'si.
 	# (Skinned mesh kutuları iskelet dönüşümünü yansıtmadığı için kemikten ölçülüyor.)
@@ -169,6 +193,7 @@ func set_moving(m: bool) -> void:
 ## Eylem tepkisi (hedefe varınca oynar).
 func play_action(kind: String) -> void:
 	_pending_action = kind
+	_pending_wait = 0.0
 
 
 func _start_action(kind: String) -> void:
@@ -189,6 +214,12 @@ func _start_action(kind: String) -> void:
 func _process(delta: float) -> void:
 	_time += delta
 	_action_time += delta
+	# Yürümeye gerek kalmadıysa (zaten oradaysa) bekleyen eylemi kısa süre sonra başlat
+	if _pending_action != "" and not _moving:
+		_pending_wait += delta
+		if _pending_wait > 0.15:
+			_start_action(_pending_action)
+			_pending_action = ""
 	# Animasyonlu eylem bitince bekleme animasyonuna dön
 	if _action_kind == "anim" and _anim and not _anim.is_playing():
 		_action_kind = ""
@@ -208,7 +239,7 @@ func _process(delta: float) -> void:
 		_body_root.rotation.x = lerpf(_body_root.rotation.x, 0.0, delta * 5.0)
 		var y := 0.0
 		# Animasyonu olmayan model için basit eylem tepkileri (~1.5 sn)
-		if _action_time < 1.5:
+		if _action_time < ACTION_SECONDS:
 			match _action_kind:
 				"play", "social", "date":
 					y = absf(sin(_action_time * 7.0)) * 0.25 * (1.5 - _action_time)
@@ -230,12 +261,16 @@ func _apply_bones(asleep: bool) -> void:
 	# Çocukken bacaklar kısa; model yere değsin diye aşağı kaydırılır
 	for b in _leg_bones:
 		_skeleton.set_bone_pose_scale(b, Vector3.ONE * _leg_scale)
-	# Kolları T-pozundan indir, hafifçe salla
-	for b in _arm_bones:
-		var rest := _skeleton.get_bone_rest(b).basis.get_rotation_quaternion()
-		var swing := sin(_time * (6.0 if _moving else 1.3)) * (0.35 if _moving else 0.04)
-		_skeleton.set_bone_pose_rotation(b, rest * Quaternion(Vector3(1, 0, 0), 1.25 + swing))
 	_model.position.y = -_hip_height * (1.0 - _leg_scale)
+	if _is_mixamo:
+		_animate_mixamo(asleep)
+		return
+	# Erkek modeli: animasyonu olmayan eylemlerde kolları yönle poza sok
+	if not asleep and not _moving and _action_time < ACTION_SECONDS and _action_kind in ["study", "work", "manage", "wash", "social", "date"]:
+		var tl := _action_arm_targets(_action_kind, _time)
+		if not tl.is_empty():
+			_aim_arm("leftarm_", "leftforearm", "", tl[0], tl[1])
+			_aim_arm("rightarm_", "rightforearm", "", tl[2], tl[3])
 	if _anim == null and _spine_bone >= 0:
 		var rest := _skeleton.get_bone_rest(_spine_bone).basis.get_rotation_quaternion()
 		var speed := 0.6 if asleep else 1.2
@@ -243,6 +278,124 @@ func _apply_bones(asleep: bool) -> void:
 		var sway := Quaternion(Vector3(0, 0, 1), sin(_time * speed) * amount) \
 			* Quaternion(Vector3(1, 0, 0), sin(_time * speed * 2.0) * amount * 0.5)
 		_skeleton.set_bone_pose_rotation(_spine_bone, rest * sway)
+
+
+## Kodla animasyon (Mixamo iskeleti): yürüme, bekleme ve eylem pozları.
+## Bacak/diz/bel/baş X ekseninde döndürülür. Kollar ise karakterin kendi uzayında verilen
+## yönlere "nişanlanır" (modelin T-poz/A-poz farkından bağımsız çalışır).
+## Karakter uzayı: +Z ileri (yüz), +X karakterin solu, +Y yukarı.
+func _animate_mixamo(asleep: bool) -> void:
+	var t := _time
+	var legs := {"leftupleg": 0.0, "rightupleg": 0.0, "leftleg_": 0.0, "rightleg_": 0.0, "spine": sin(t * 2.4) * 0.02, "head_": sin(t * 0.7) * 0.05}
+	# Kol yönleri: [üst kol, ön kol] sol ve sağ için
+	var sway := sin(t * 1.3) * 0.05
+	var l_up := Vector3(0.18, -1.0, sway)
+	var l_lo := Vector3(0.1, -1.0, 0.25)
+	var r_up := Vector3(-0.18, -1.0, -sway)
+	var r_lo := Vector3(-0.1, -1.0, 0.25)
+	if asleep:
+		pass
+	elif _moving:
+		var w := t * 8.0
+		legs.leftupleg = sin(w) * 0.5
+		legs.rightupleg = -sin(w) * 0.5
+		legs.leftleg_ = maxf(0.0, -sin(w)) * 0.7
+		legs.rightleg_ = maxf(0.0, sin(w)) * 0.7
+		l_up = Vector3(0.15, -1.0, -sin(w) * 0.55)
+		r_up = Vector3(-0.15, -1.0, sin(w) * 0.55)
+		l_lo = l_up + Vector3(0, 0, 0.45)
+		r_lo = r_up + Vector3(0, 0, 0.45)
+	elif _action_time < ACTION_SECONDS:
+		var fade := clampf(minf(_action_time * 4.0, (ACTION_SECONDS - _action_time) * 4.0), 0.0, 1.0)
+		var dl := [l_up, l_lo, r_up, r_lo]
+		var tl := _action_arm_targets(_action_kind, t)
+		if tl.is_empty():
+			tl = dl
+		match _action_kind:
+			"eat":
+				legs.head_ = 0.1
+			"study", "work", "manage":
+				legs.head_ = 0.35
+				legs.spine = 0.12
+			"play":
+				legs.leftleg_ = absf(sin(t * 7.0)) * 0.5
+				legs.rightleg_ = legs.leftleg_
+		l_up = dl[0].lerp(tl[0], fade)
+		l_lo = dl[1].lerp(tl[1], fade)
+		r_up = dl[2].lerp(tl[2], fade)
+		r_lo = dl[3].lerp(tl[3], fade)
+
+	_set_bone("leftupleg", Quaternion(Vector3(1, 0, 0), legs.leftupleg))
+	_set_bone("rightupleg", Quaternion(Vector3(1, 0, 0), legs.rightupleg))
+	_set_bone("leftleg_", Quaternion(Vector3(1, 0, 0), -legs.leftleg_))
+	_set_bone("rightleg_", Quaternion(Vector3(1, 0, 0), -legs.rightleg_))
+	_set_bone("spine", Quaternion(Vector3(1, 0, 0), legs.spine))
+	_set_bone("head_", Quaternion(Vector3(1, 0, 0), legs.head_))
+	if not asleep:
+		_aim_arm("leftarm_", "leftforearm", "lefthand_", l_up, l_lo)
+		_aim_arm("rightarm_", "rightforearm", "righthand_", r_up, r_lo)
+
+
+## Eylem için kol yönleri [sol üst, sol ön, sağ üst, sağ ön] (karakter uzayı). Yoksa boş.
+func _action_arm_targets(kind: String, t: float) -> Array:
+	var l_up := Vector3(0.18, -1.0, 0.0)
+	var l_lo := Vector3(0.1, -1.0, 0.25)
+	match kind:
+		"eat":  # Sağ el ağza
+			return [l_up, l_lo, Vector3(-0.25, -0.75, 0.6), Vector3(0.35, 0.9 + sin(t * 9.0) * 0.25, 0.2)]
+		"wash":  # İki el başın üstünde ovuşturma
+			var rub := sin(t * 10.0) * 0.3
+			return [Vector3(0.7, 0.7, 0.1), Vector3(-0.8, 0.4 + rub, 0.1), Vector3(-0.7, 0.7, 0.1), Vector3(0.8, 0.4 - rub, 0.1)]
+		"study", "work", "manage":  # Eğilip yazma
+			var tap := sin(t * 14.0) * 0.12
+			return [Vector3(0.25, -0.8, 0.55), Vector3(-0.15, -0.15 + tap, 1.0), Vector3(-0.25, -0.8, 0.55), Vector3(0.15, -0.15 - tap, 1.0)]
+		"play":  # Kollar havada
+			return [Vector3(0.45, 1.0, 0.1), Vector3(0.3, 1.0, 0.0), Vector3(-0.45, 1.0, 0.1), Vector3(-0.3, 1.0, 0.0)]
+		"social", "date":  # Sağ el ile el sallama
+			return [l_up, l_lo, Vector3(-1.0, 0.45, 0.1), Vector3(-0.25 + sin(t * 10.0) * 0.45, 1.0, 0.1)]
+	return []
+
+
+## Üst kolu ve ön kolu karakter uzayında verilen yönlere çevir.
+func _aim_arm(arm_key: String, fore_key: String, hand_key: String, up_dir: Vector3, lo_dir: Vector3) -> void:
+	if not (_rig.has(arm_key) and _rig.has(fore_key)):
+		return
+	var arm: int = _rig[arm_key]
+	var fore: int = _rig[fore_key]
+	var hand: int = _rig.get(hand_key, -1)
+	if hand < 0:
+		var kids := _skeleton.get_bone_children(fore)
+		if kids.is_empty():
+			return
+		hand = kids[0]
+	# Karakter uzayından iskelet uzayına
+	var to_skel := _skeleton.global_transform.basis.inverse() * global_transform.basis
+	var parent := _skeleton.get_bone_parent(arm)
+	var parent_g: Transform3D = _skeleton.get_bone_global_pose(parent) if parent >= 0 else Transform3D.IDENTITY
+	var arm_g := _aim_one(arm, fore, parent_g, (to_skel * up_dir).normalized())
+	_aim_one(fore, hand, arm_g, (to_skel * lo_dir).normalized())
+
+
+func _aim_one(bone: int, child: int, parent_g: Transform3D, dir: Vector3) -> Transform3D:
+	var rest := _skeleton.get_bone_rest(bone)
+	var g := parent_g * rest
+	var cur := (g.basis * _skeleton.get_bone_rest(child).origin).normalized()
+	if cur.length() < 0.001 or dir.length() < 0.001:
+		return g
+	var q := Quaternion(cur, dir) if cur.dot(dir) > -0.999 else Quaternion(g.basis.x.normalized(), PI)
+	var new_basis := Basis(q) * g.basis
+	var local := parent_g.basis.inverse() * new_basis
+	_skeleton.set_bone_pose_rotation(bone, local.get_rotation_quaternion())
+	return Transform3D(new_basis, g.origin)
+
+
+func _set_bone(key: String, q: Quaternion) -> void:
+	if not _rig.has(key):
+		return
+	var b: int = _rig[key]
+	if key == "head_":
+		_skeleton.set_bone_pose_scale(b, Vector3.ONE * _head_scale)
+	_skeleton.set_bone_pose_rotation(b, _skeleton.get_bone_rest(b).basis.get_rotation_quaternion() * q)
 
 
 func _pick_anim(include: Array, exclude: Array) -> String:

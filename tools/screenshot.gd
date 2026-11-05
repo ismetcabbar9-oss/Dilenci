@@ -74,6 +74,15 @@ func _initialize() -> void:
 			var gs = root.get_node("GameState")
 			gs.acted.emit(a.substr(4))
 			main._away_timer = 1000.0  # Ekran görüntüsü için mekânda kal
+			if args.has("pose"):  # Eylem pozunun ortasında yakala
+				for j in 200:
+					await process_frame
+					if main.character._action_kind != "" and main.character._action_time > 0.6:
+						break
+				await RenderingServer.frame_post_draw
+				root.get_texture().get_image().save_png(out)
+				quit()
+				return
 		if a == "sleep":
 			root.get_node("GameState").sleeping = true
 			root.get_node("GameState").changed.emit()

@@ -35,8 +35,8 @@ const PLACES := {
 # Bahçede sergilenen lüks varlıklar: model, sahnedeki yuva (bahçe merkezine göre), en büyük boyut
 const LUXURY_MODELS := {
 	"car": {"path": "res://assets/models/luxury/cars.glb", "slot": Vector3(-1.1, 0, 0.75), "size": 1.25, "keep": "Sedan"},
-	"boat": {"path": "res://assets/models/luxury/boat.glb", "slot": Vector3(0.05, 0, 0.8), "size": 1.1},
-	"summer_house": {"path": "res://assets/models/luxury/summer_house.glb", "slot": Vector3(-1.1, 0, -0.85), "size": 1.2},
+	"boat": {"path": "res://assets/models/luxury/boat.glb", "slot": Vector3(0.05, 0, 0.8), "size": 1.1, "paint": "boat"},
+	"summer_house": {"path": "res://assets/models/luxury/summer_house.glb", "slot": Vector3(-1.1, 0, -0.85), "size": 1.2, "paint": "house"},
 	"yacht": {"path": "res://assets/models/luxury/yacht.glb", "slot": Vector3(1.15, 0, 0.75), "size": 1.25},
 	"jet": {"path": "res://assets/models/luxury/jet.glb", "slot": Vector3(0.05, 0, -0.75), "size": 1.2},
 	"island": {"path": "res://assets/models/luxury/island.glb", "slot": Vector3(1.05, 0.55, -0.8), "scale": 0.024},
@@ -113,6 +113,8 @@ func _build_garden(luxury: Array) -> void:
 			for child in n.find_children("SHTV_Prefab_*", "Node3D", true, false):
 				child.visible = String(child.name).contains(d.keep)
 		_fix_vertex_colors(n)
+		if d.has("paint"):
+			_paint(n, d.paint)
 		if d.has("scale"):
 			# Kutusu yanıltıcı modeller (ör. ada: uzak bulutlar/şelale): orijine göre yerleştir
 			n.scale = Vector3.ONE * float(d.scale)
@@ -139,6 +141,58 @@ func _garden_box(size: Vector3, pos: Vector3, color: Color) -> void:
 	mi.material_override = mat
 	mi.position = pos
 	_garden.add_child(mi)
+
+
+## Dokusuz (beyaz) gelen modelleri parça boyutlarına göre renklendir.
+static func _paint(root: Node3D, style: String) -> void:
+	var meshes := root.find_children("*", "MeshInstance3D", true, false)
+	if style == "boat":
+		for mi in meshes:
+			if String(mi.name).begins_with("Plane"):
+				mi.visible = false  # modelle gelen büyük zemin düzlemi
+			else:
+				mi.material_override = _mat(Color(0.86, 0.22, 0.2), 0.4)
+		return
+	# Yazlık: parçaları boyut ve yüksekliğe göre sınıfla
+	var total := AABB()
+	var first := true
+	for mi in meshes:
+		var b: AABB = mi.global_transform * mi.mesh.get_aabb()
+		total = b if first else total.merge(b)
+		first = false
+	var wall := _mat(Color(0.97, 0.94, 0.87), 0.9)
+	var floor_m := _mat(Color(0.78, 0.58, 0.38), 0.8)
+	var base := _mat(Color(0.86, 0.8, 0.68), 0.95)
+	var glass := _mat(Color(0.45, 0.7, 0.9), 0.2)
+	var metal := _mat(Color(0.32, 0.33, 0.36), 0.6)
+	var leaf := _mat(Color(0.3, 0.68, 0.3), 0.9)
+	var trunk := _mat(Color(0.55, 0.38, 0.22), 0.9)
+	for mi in meshes:
+		var b: AABB = mi.global_transform * mi.mesh.get_aabb()
+		var rel_y := (b.position.y - total.position.y) / maxf(total.size.y, 0.001)
+		var big := maxf(b.size.x, b.size.z) / maxf(maxf(total.size.x, total.size.z), 0.001)
+		var flat := b.size.y < 0.06 * maxf(b.size.x, b.size.z)
+		var m: Material = wall
+		if rel_y < 0.08 and big > 0.6:
+			m = base
+		elif flat and big > 0.25:
+			m = floor_m
+		elif flat:
+			m = glass
+		elif big < 0.08 and b.size.y > 2.0 * maxf(b.size.x, b.size.z):
+			m = trunk
+		elif big < 0.08:
+			m = metal
+		elif big < 0.2 and rel_y > 0.45:
+			m = leaf
+		mi.material_override = m
+
+
+static func _mat(c: Color, rough: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = c
+	m.roughness = rough
+	return m
 
 
 ## Köşe rengi (vertex color) kullanan modellerde rengi görünür yap.
