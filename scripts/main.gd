@@ -42,6 +42,9 @@ var _event_modal: Control
 var guide: Node
 var _guide_targets := {}    # Oyuncu oklarla gezerken kamerayı karaktere bağlama
 var _was_sleeping := false
+var _away_place := ""        # "school" / "office": karakter evin dışında
+var _away_timer := 0.0
+var _away_return_kind := ""
 
 # Eylem sekmeleri: [sekme adı, [[buton, callable], ...]]
 var tabs: Array = []
@@ -84,10 +87,20 @@ func _process(delta: float) -> void:
 		character.rotation.y = lerp_angle(character.rotation.y, face, clampf(delta * 6.0, 0.0, 1.0))
 	character.position.y = lerpf(character.position.y, _char_target.y, clampf(delta * 5.0, 0.0, 1.0))
 
-	# Kamera odayı takip eder
+	# Okul / işyeri ziyareti bitince eve dön
+	if _away_place != "":
+		_away_timer -= delta
+		if _away_timer <= 0.0:
+			_return_home()
+
+	# Kamera odayı (veya dışarıdaki mekânı) takip eder
 	if not _manual_focus:
 		_focus_room = _char_room
-	if not home.rooms.is_empty():
+	if _away_place != "" and not _manual_focus:
+		var pc: Vector3 = home.places[_away_place].center
+		camera.position = camera.position.lerp(pc + CAM_OFFSET, clampf(delta * 4.0, 0.0, 1.0))
+		camera.look_at(camera.position - CAM_OFFSET + CAM_LOOK)
+	elif not home.rooms.is_empty():
 		var c: Vector3 = home.rooms[clampi(_focus_room, 0, home.rooms.size() - 1)].center
 		var desired := c + CAM_OFFSET
 		camera.position = camera.position.lerp(desired, clampf(delta * 3.0, 0.0, 1.0))
@@ -144,8 +157,12 @@ func _build_world() -> void:
 	add_child(family_root)
 
 
+func _home_key() -> String:
+	return "%d|%s" % [GameState.home_level, ",".join(Goals.owned_luxury())]
+
+
 func _rebuild_home() -> void:
-	home.build(GameState.home_level)
+	home.build(GameState.home_level, Goals.owned_luxury().duplicate())
 	_family_signature = ""
 	_refresh_family()
 	var r: Dictionary = home.room_for_action("sleep" if GameState.sleeping else "idle")
@@ -169,7 +186,7 @@ func _spot_for_current_state() -> Vector3:
 
 
 func _on_state_changed() -> void:
-	if home.built_level != GameState.home_level:
+	if home.built_key != _home_key():
 		_rebuild_home()
 		return
 	_refresh_family()
@@ -183,12 +200,39 @@ func _on_state_changed() -> void:
 
 
 func _on_acted(kind: String) -> void:
+	if kind in ["study", "work", "manage"]:
+		# Okula / işe gider: birkaç saniye orada görünür
+		_away_place = "school" if kind == "study" else "office"
+		_away_timer = 3.0
+		_away_return_kind = "idle"
+		_manual_focus = false
+		character.position = home.place_spot(_away_place)
+		_char_target = character.position
+		character.play_action(kind)
+		character.set_moving(false)
+		room_label.text = "%s · %s" % [home.ROOM_NAMES[_away_place], GameState.person.name]
+		return
+	_return_home_now()
 	var r: Dictionary = home.room_for_action(kind)
 	_char_room = home.room_index(r.id)
 	_char_target = home.stand_spot(r)
 	_manual_focus = false
 	character.play_action(kind)
 	_update_room_label()
+
+
+func _return_home() -> void:
+	_return_home_now()
+	var r: Dictionary = home.room_for_action("sleep" if GameState.sleeping else _away_return_kind)
+	_char_room = home.room_index(r.id)
+	_char_target = _spot_for_current_state()
+	character.position = _char_target
+	_update_room_label()
+
+
+func _return_home_now() -> void:
+	_away_place = ""
+	_away_timer = 0.0
 
 
 func _browse_room(step: int) -> void:
@@ -441,7 +485,7 @@ func _open_settings() -> void:
 		c.toggled.connect(item[2])
 		box.add_child(c)
 	var cr := _label(18)
-	cr.text = "Müzik: Kistol · Ses: Kenney, MintoDog (CC0)\n3D: Agor_, Stas_SayHallo, IsaacTheMaverick, Brynnnnn (CC BY 4.0)"
+	cr.text = "Müzik: Kistol · Ses: Kenney, MintoDog (CC0)\n3D (CC BY 4.0): Agor_, Stas_SayHallo, IsaacTheMaverick, Brynnnnn, micaelsampaio, MaX3Dd, thcyrax, tselikov.viktor, Mrelectro09, MarkoJantti, antonmoek, vladicom08, medraphc"
 	cr.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	cr.custom_minimum_size.x = 420
 	box.add_child(cr)

@@ -73,6 +73,7 @@ func _initialize() -> void:
 		if a.begins_with("act="):
 			var gs = root.get_node("GameState")
 			gs.acted.emit(a.substr(4))
+			main._away_timer = 1000.0  # Ekran görüntüsü için mekânda kal
 		if a == "sleep":
 			root.get_node("GameState").sleeping = true
 			root.get_node("GameState").changed.emit()
@@ -106,6 +107,11 @@ func _initialize() -> void:
 			go.buy_luxury("car")
 			go.buy_luxury("boat")
 			go.buy_luxury("summer_house")
+			if a == "rich=garden":
+				gs.money += 3000000
+				go.buy_luxury("yacht")
+				go.buy_luxury("jet")
+				go.buy_luxury("island")
 			go.fund_project("park")
 			go.fund_project("library")
 			go.check_achievements()

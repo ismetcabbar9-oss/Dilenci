@@ -13,6 +13,7 @@ const HOUSE_ROOMS := {
 const ROOM_NAMES := {
 	"small": "Oda", "kitchen": "Mutfak", "living": "Oturma odası", "bedroom": "Yatak odası",
 	"bathroom": "Banyo", "study": "Çalışma odası", "gym": "Spor odası", "cinema": "Hobi odası",
+	"garden": "Bahçe", "school": "Okul", "office": "İşyeri",
 }
 # Hangi eylem hangi odada yapılır (ilk bulunan oda kullanılır)
 const ACTION_ROOMS := {
@@ -27,28 +28,139 @@ const ACTION_ROOMS := {
 	"social": ["cinema", "living", "small"],
 	"date": ["cinema", "living", "small"],
 }
+const PLACES := {
+	"school": {"path": "res://assets/models/places/school.glb", "x": -40.0, "yaw": 0.0, "name": "Okul", "spot": Vector3(0.3, 0, 1.0)},
+	"office": {"path": "res://assets/models/places/office.glb", "x": -52.0, "yaw": PI, "name": "İşyeri", "spot": Vector3(-0.7, 0, 1.4)},
+}
+# Bahçede sergilenen lüks varlıklar: model, sahnedeki yuva (bahçe merkezine göre), en büyük boyut
+const LUXURY_MODELS := {
+	"car": {"path": "res://assets/models/luxury/cars.glb", "slot": Vector3(-1.1, 0, 0.75), "size": 1.25, "keep": "Sedan"},
+	"boat": {"path": "res://assets/models/luxury/boat.glb", "slot": Vector3(0.05, 0, 0.8), "size": 1.1},
+	"summer_house": {"path": "res://assets/models/luxury/summer_house.glb", "slot": Vector3(-1.1, 0, -0.85), "size": 1.2},
+	"yacht": {"path": "res://assets/models/luxury/yacht.glb", "slot": Vector3(1.15, 0, 0.75), "size": 1.25},
+	"jet": {"path": "res://assets/models/luxury/jet.glb", "slot": Vector3(0.05, 0, -0.75), "size": 1.2},
+	"island": {"path": "res://assets/models/luxury/island.glb", "slot": Vector3(1.05, 0.55, -0.8), "scale": 0.024},
+}
 const ROOM_SPACING := 3.75
 const FLOOR_Y := 0.0
 
 ## [{id, center: Vector3, size: Vector3, bed: Vector3 (yoksa INF)}]
 var rooms: Array = []
 var built_level := -1
+var built_key := ""
+var places := {}          # id -> {center: Vector3}
 var _instance: Node3D
+var _garden: Node3D
 
 
-func build(level: int) -> void:
-	if level == built_level:
+func build(level: int, luxury: Array = []) -> void:
+	var key := "%d|%s" % [level, ",".join(luxury)]
+	if key == built_key:
 		return
+	built_key = key
 	built_level = level
 	if _instance:
 		_instance.queue_free()
 		_instance = null
+	if _garden:
+		_garden.queue_free()
+		_garden = null
 	rooms.clear()
 	var ids: Array = GameState.HOMES[level].rooms
 	if ids.has("small"):
 		_build_small()
 	else:
 		_build_house(ids)
+	if not luxury.is_empty():
+		_build_garden(luxury)
+	if places.is_empty():
+		_build_places()
+
+
+## Okul ve işyeri: evden uzakta, karakter oraya "gider".
+func _build_places() -> void:
+	for id in PLACES:
+		var p: Dictionary = PLACES[id]
+		var n: Node3D = load(p.path).instantiate()
+		add_child(n)
+		n.rotation.y = p.yaw
+		var box := _aabb(n)
+		n.scale = Vector3.ONE * (3.9 / maxf(maxf(box.size.x, box.size.z), 0.01))
+		box = _aabb(n)
+		n.global_position += Vector3(p.x - box.get_center().x, FLOOR_Y - box.position.y, -box.get_center().z)
+		places[id] = {"id": id, "center": Vector3(p.x, FLOOR_Y, 0.0)}
+
+
+## Bahçe: çimen, çit ve sahip olunan lüks varlıkların minyatürleri.
+func _build_garden(luxury: Array) -> void:
+	_garden = Node3D.new()
+	add_child(_garden)
+	var last: Dictionary = rooms.back()
+	var c := Vector3(last.center.x + ROOM_SPACING, FLOOR_Y, last.center.z)
+	_garden_box(Vector3(3.6, 0.12, 3.6), c + Vector3(0, -0.06, 0), Color(0.42, 0.7, 0.32))
+	for i in 7:  # arka ve sağ çit
+		_garden_box(Vector3(0.08, 0.6, 0.08), c + Vector3(-1.75 + i * 0.58, 0.3, -1.75), Color(0.95, 0.95, 0.9))
+		_garden_box(Vector3(0.08, 0.6, 0.08), c + Vector3(1.75, 0.3, -1.75 + i * 0.58), Color(0.95, 0.95, 0.9))
+	_garden_box(Vector3(3.6, 0.07, 0.05), c + Vector3(0, 0.45, -1.75), Color(0.95, 0.95, 0.9))
+	_garden_box(Vector3(0.05, 0.07, 3.6), c + Vector3(1.75, 0.45, 0), Color(0.95, 0.95, 0.9))
+	for id in luxury:
+		if not LUXURY_MODELS.has(id):
+			continue
+		var d: Dictionary = LUXURY_MODELS[id]
+		var n: Node3D = load(d.path).instantiate()
+		_garden.add_child(n)
+		if d.has("keep"):
+			for child in n.find_children("SHTV_Prefab_*", "Node3D", true, false):
+				child.visible = String(child.name).contains(d.keep)
+		_fix_vertex_colors(n)
+		if d.has("scale"):
+			# Kutusu yanıltıcı modeller (ör. ada: uzak bulutlar/şelale): orijine göre yerleştir
+			n.scale = Vector3.ONE * float(d.scale)
+			n.rotation.y = 0.6
+			n.global_position = c + d.slot
+			continue
+		var box := _aabb(n)
+		n.scale = Vector3.ONE * (float(d.size) / maxf(maxf(box.size.x, box.size.z), 0.01))
+		n.rotation.y = 0.6
+		box = _aabb(n)
+		var target: Vector3 = c + d.slot
+		n.global_position += Vector3(target.x - box.get_center().x, target.y + FLOOR_Y - box.position.y, target.z - box.get_center().z)
+	rooms.append({"id": "garden", "center": c, "size": Vector3(3.6, 1, 3.6), "bed": Vector3.INF, "bed_yaw": 0.0})
+
+
+func _garden_box(size: Vector3, pos: Vector3, color: Color) -> void:
+	var mi := MeshInstance3D.new()
+	var m := BoxMesh.new()
+	m.size = size
+	mi.mesh = m
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.95
+	mi.material_override = mat
+	mi.position = pos
+	_garden.add_child(mi)
+
+
+## Köşe rengi (vertex color) kullanan modellerde rengi görünür yap.
+static func _fix_vertex_colors(root: Node) -> void:
+	for mi in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh: Mesh = (mi as MeshInstance3D).mesh
+		for si in mesh.get_surface_count():
+			var arrays := mesh.surface_get_arrays(si) if mesh is ArrayMesh else []
+			if arrays.is_empty():
+				continue
+			var col = arrays[Mesh.ARRAY_COLOR]
+			if col == null or col.size() == 0:
+				continue
+			var m := mesh.surface_get_material(si) as BaseMaterial3D
+			if m:
+				m.vertex_color_use_as_albedo = true
+
+
+func place_spot(id: String) -> Vector3:
+	if not places.has(id):
+		return Vector3.ZERO
+	return places[id].center + PLACES[id].spot
 
 
 func _build_small() -> void:

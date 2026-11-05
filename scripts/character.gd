@@ -8,7 +8,10 @@ extends Node3D
 const MODELS := {
 	"male": "res://assets/models/characters/man.glb",
 	"female": "res://assets/models/characters/woman.glb",
+	"kid_male": "res://assets/models/kids/kid_boy.glb",
+	"kid_female": "res://assets/models/kids/kid_girl.glb",
 }
+const KID_MODEL_MAX_AGE := 12.0  # Bu yaşa kadar çocuk modeli
 const ADULT_HEIGHT := 1.75
 
 ## true: oyuncunun karakteri (GameState'i izler). false: aile üyesi (setup ile ayarlanır).
@@ -29,6 +32,7 @@ var _target_scale := 1.0
 var _head_scale := 1.0
 var _leg_scale := 1.0
 var _leg_bones: Array[int] = []
+var _arm_bones: Array[int] = []   # T-pozundaki çocuk modellerinin kolları indirilir
 var _hip_height := 0.9
 var _idle_anim := ""
 var _walk_anim := ""
@@ -63,8 +67,9 @@ func _refresh() -> void:
 	if follow_player:
 		age_years = GameState.get_age_years()
 		gender = GameState.person.get("gender", "male")
-	if gender != _model_gender:
-		_load_model()
+	var model_key := ("kid_" + gender) if age_years < KID_MODEL_MAX_AGE else gender
+	if model_key != _model_gender:
+		_load_model(model_key)
 	var age := age_years
 	# Boy: 6 yaşta ~%60, 18 yaşta %100
 	_target_scale = clampf(0.3 + age * 0.04, 0.35, 1.0)
@@ -72,24 +77,39 @@ func _refresh() -> void:
 		_target_scale -= minf((age - 60.0) * 0.003, 0.06)  # yaşlılıkta hafif kısalma
 	# Çocukken kafa gövdeye göre daha büyük
 	var growth := clampf((age - 2.0) / 15.0, 0.0, 1.0)
-	_head_scale = lerpf(1.55, 1.0, growth)
-	_leg_scale = lerpf(0.78, 1.0, growth)
+	if _model_gender.begins_with("kid_"):
+		# Çocuk modelinin oranları zaten çocuksu
+		_head_scale = 1.08
+		_leg_scale = 1.0
+	else:
+		_head_scale = lerpf(1.55, 1.0, growth)
+		_leg_scale = lerpf(0.78, 1.0, growth)
 
 
-func _load_model() -> void:
+func _load_model(model_key: String) -> void:
 	if _model:
 		_model.queue_free()
-	_model_gender = gender
+	_model_gender = model_key
 	_anim = null
 	_skeleton = null
 	_head_bone = -1
 	_spine_bone = -1
 	_leg_bones.clear()
+	_arm_bones.clear()
 	_idle_anim = ""
 	_walk_anim = ""
-	var scene: PackedScene = load(MODELS.get(gender, MODELS.male))
+	var scene: PackedScene = load(MODELS.get(model_key, MODELS.male))
 	_model = scene.instantiate()
 	_body_root.add_child(_model)
+
+	# Işıksız (unlit) gelen malzemeleri gece-gündüz ışığından etkilenecek hale getir
+	for mi in _model.find_children("*", "MeshInstance3D", true, false):
+		var mesh: Mesh = (mi as MeshInstance3D).mesh
+		for si in mesh.get_surface_count():
+			var m := mesh.surface_get_material(si) as BaseMaterial3D
+			if m and m.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED:
+				m.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+				m.roughness = 0.9
 
 	_skeleton = _find(_model, "Skeleton3D") as Skeleton3D
 	if _skeleton:
@@ -101,6 +121,8 @@ func _load_model() -> void:
 				_spine_bone = i
 			if n.contains("thigh") or n.contains("upleg"):
 				_leg_bones.append(i)
+			if model_key.begins_with("kid_") and (n.contains("leftarm") or n.contains("rightarm")):
+				_arm_bones.append(i)
 
 	# Boyu normalize et: kafa kemiği yüksekliği ≈ boyun %87'si.
 	# (Skinned mesh kutuları iskelet dönüşümünü yansıtmadığı için kemikten ölçülüyor.)
@@ -208,6 +230,11 @@ func _apply_bones(asleep: bool) -> void:
 	# Çocukken bacaklar kısa; model yere değsin diye aşağı kaydırılır
 	for b in _leg_bones:
 		_skeleton.set_bone_pose_scale(b, Vector3.ONE * _leg_scale)
+	# Kolları T-pozundan indir, hafifçe salla
+	for b in _arm_bones:
+		var rest := _skeleton.get_bone_rest(b).basis.get_rotation_quaternion()
+		var swing := sin(_time * (6.0 if _moving else 1.3)) * (0.35 if _moving else 0.04)
+		_skeleton.set_bone_pose_rotation(b, rest * Quaternion(Vector3(1, 0, 0), 1.25 + swing))
 	_model.position.y = -_hip_height * (1.0 - _leg_scale)
 	if _anim == null and _spine_bone >= 0:
 		var rest := _skeleton.get_bone_rest(_spine_bone).basis.get_rotation_quaternion()

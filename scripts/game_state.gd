@@ -1023,7 +1023,8 @@ func _apply_offline(away_seconds: float) -> void:
 		text += " Para: %+d." % (money - money_before)
 	if int(get_age_years()) > int(age_before):
 		text += " Bir yaş büyüdü!"
-	offline_summary.emit.call_deferred(text)
+	if game_min >= 60.0:  # Kısa aralarda kart gösterme
+		offline_summary.emit.call_deferred(text)
 
 
 ## Oyuncu yokken: acıkınca evde yer, gece veya yorgunken uyur.
