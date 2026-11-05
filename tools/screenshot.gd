@@ -32,6 +32,22 @@ func _initialize() -> void:
 		main._select_tab(2)
 		for i in 60:
 			await process_frame
+	if args.has("business"):
+		var gs = root.get_node("GameState")
+		gs.person.age_minutes = gs.years_to_minutes(42.0)
+		gs.person.education = 60.0
+		gs.person.experience = 80.0
+		gs.money = 60000
+		for t in ["kiosk", "cafe", "market", "restaurant", "factory"]:
+			gs.open_business(t)
+		gs.upgrade_business(0)
+		gs.upgrade_business(0)
+		gs.businesses[1].morale = 45.0
+		gs.changed.emit()
+		main._select_tab(2)
+		main._open_business()
+		for i in 30:
+			await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(out)
 	quit()

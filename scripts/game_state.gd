@@ -67,6 +67,26 @@ const CHILD_DAILY_COST := 5   # 18 yaşına kadar her çocuk için günlük gide
 const PARTNER_DAILY_INCOME := 10  # Evliyken eşin eve kattığı katkı
 const MAX_CHILDREN := 4
 const MIN_RELATION_TO_MARRY := 70.0
+# --- İşletmeler ---
+# cost: kuruluş bedeli, income: seviye 1 günlük net kâr
+const BUSINESS_TYPES := [
+	{"id": "kiosk", "name": "Büfe", "cost": 300, "income": 20, "min_age": 18.0, "min_edu": 0.0, "min_exp": 0.0},
+	{"id": "cafe", "name": "Kafe", "cost": 900, "income": 55, "min_age": 20.0, "min_edu": 10.0, "min_exp": 10.0},
+	{"id": "market", "name": "Market", "cost": 2500, "income": 140, "min_age": 22.0, "min_edu": 20.0, "min_exp": 20.0},
+	{"id": "restaurant", "name": "Restoran", "cost": 6000, "income": 320, "min_age": 24.0, "min_edu": 30.0, "min_exp": 30.0},
+	{"id": "factory", "name": "Fabrika", "cost": 18000, "income": 900, "min_age": 28.0, "min_edu": 45.0, "min_exp": 50.0},
+	{"id": "tech", "name": "Teknoloji Şirketi", "cost": 50000, "income": 2400, "min_age": 30.0, "min_edu": 65.0, "min_exp": 60.0},
+]
+const MAX_BUSINESS_LEVEL := 5
+const BUSINESS_SELL_RATIO := 0.6
+const MORALE_DECAY_PER_DAY := 8.0
+# Unvanlar: [ad, gereken işletme sayısı, gereken toplam şirket değeri]
+const TITLES := [
+	["Holding Sahibi", 5, 25000],
+	["İş İnsanı", 3, 3000],
+	["Esnaf", 1, 0],
+]
+const SURNAMES := ["Yılmaz", "Kaya", "Demir", "Şahin", "Çelik", "Aydın", "Öztürk", "Arslan", "Doğan", "Koç"]
 const MALE_NAMES := ["Ali", "Mehmet", "Can", "Emre", "Murat", "Kerem", "Burak", "Yusuf"]
 const FEMALE_NAMES := ["Ayşe", "Zeynep", "Elif", "Selin", "Deniz", "Ece", "Merve", "Defne"]
 
@@ -78,6 +98,10 @@ var game_minutes: float = 0.0    # Oyun başından beri geçen toplam oyun dakik
 var speed_index: int = 1
 var generation: int = 1
 var family_tree: Array = []      # Önceki nesillerin özeti
+var family_name: String = ""     # Soyadı (holding adı da buradan)
+## Aile işletmeleri (nesiller boyu miras kalır): [{type, level, morale, invested}]
+var businesses: Array = []
+var _last_title := ""
 var sleeping: bool = false
 var is_dead: bool = false
 
@@ -116,6 +140,9 @@ func new_game() -> void:
 	gems = 0
 	generation = 1
 	family_tree = []
+	businesses = []
+	family_name = SURNAMES[randi() % SURNAMES.size()]
+	_last_title = ""
 	game_minutes = 0.0
 	speed_index = 1
 	var gender := "female" if randf() < 0.5 else "male"
@@ -221,8 +248,11 @@ func _simulate_step(minutes: float, offline: bool) -> void:
 # ---------------------------------------------------------------
 func _new_day() -> void:
 	_relation_decay()
+	var biz_income := _collect_business_income()
 	if get_age_years() < 18.0:
 		money += DAILY_ALLOWANCE
+		if biz_income > 0:
+			message.emit("Aile işletmeleri bugün %d kazandırdı." % biz_income)
 		return
 	var cost := DAILY_RENT
 	for c in person.children:
@@ -232,7 +262,10 @@ func _new_day() -> void:
 		money += PARTNER_DAILY_INCOME
 	if money >= cost:
 		money -= cost
-		message.emit("Günlük ev ve aile giderleri ödendi (-%d)." % cost)
+		if biz_income > 0:
+			message.emit("Yeni gün: işletmeler +%d, giderler -%d." % [biz_income, cost])
+		else:
+			message.emit("Günlük ev ve aile giderleri ödendi (-%d)." % cost)
 	else:
 		money = 0
 		_add_need("fun", -20.0)
@@ -449,6 +482,163 @@ func _relation_decay() -> void:
 		message.emit("%s ile araları soğuyor, birlikte vakit geçirmeli." % p.name)
 
 
+# ---------------------------------------------------------------
+# İşletmeler ve holding
+# ---------------------------------------------------------------
+func get_business_type(type_id: String) -> Dictionary:
+	for t in BUSINESS_TYPES:
+		if t.id == type_id:
+			return t
+	return {}
+
+
+## Seviye ve moral dahil günlük kâr.
+func business_income(b: Dictionary) -> int:
+	var t := get_business_type(b.type)
+	var level_mult: float = 1.0 + 0.6 * (b.level - 1)
+	var morale_mult: float = 0.4 + 0.6 * (b.morale / 100.0)
+	return int(t.income * level_mult * morale_mult)
+
+
+func business_upgrade_cost(b: Dictionary) -> int:
+	return int(get_business_type(b.type).cost * 0.8 * b.level)
+
+
+func business_value(b: Dictionary) -> int:
+	return int(b.invested)
+
+
+func total_business_value() -> int:
+	var v := 0
+	for b in businesses:
+		v += business_value(b)
+	return v
+
+
+func business_requirement_text(t: Dictionary) -> String:
+	var miss := []
+	if get_age_years() < t.min_age:
+		miss.append("%d yaş" % int(t.min_age))
+	if person.education < t.min_edu:
+		miss.append("eğitim %d" % int(t.min_edu))
+	if person.experience < t.min_exp:
+		miss.append("tecrübe %d" % int(t.min_exp))
+	return "" if miss.is_empty() else "Gerekli: " + ", ".join(miss)
+
+
+func can_open_business(type_id: String) -> bool:
+	var t := get_business_type(type_id)
+	return not t.is_empty() and business_requirement_text(t) == "" and money >= int(t.cost)
+
+
+func open_business(type_id: String) -> void:
+	if is_dead:
+		return
+	var t := get_business_type(type_id)
+	if t.is_empty():
+		return
+	var req := business_requirement_text(t)
+	if req != "":
+		message.emit("%s açılamaz. %s" % [t.name, req])
+		return
+	if money < int(t.cost):
+		message.emit("%s için %d para gerekli." % [t.name, int(t.cost)])
+		return
+	money -= int(t.cost)
+	businesses.append({"type": type_id, "level": 1, "morale": 100.0, "invested": int(t.cost)})
+	message.emit("Yeni işletme: %s! Günlük ~%d kâr." % [t.name, int(t.income)])
+	_check_title()
+	changed.emit()
+
+
+func upgrade_business(index: int) -> void:
+	if index < 0 or index >= businesses.size() or is_dead:
+		return
+	var b: Dictionary = businesses[index]
+	if b.level >= MAX_BUSINESS_LEVEL:
+		message.emit("Bu işletme zaten en üst seviyede.")
+		return
+	var cost := business_upgrade_cost(b)
+	if money < cost:
+		message.emit("Büyütmek için %d para gerekli." % cost)
+		return
+	money -= cost
+	b.level += 1
+	b.invested += cost
+	message.emit("%s büyüdü! Seviye %d." % [get_business_type(b.type).name, int(b.level)])
+	_check_title()
+	changed.emit()
+
+
+func sell_business(index: int) -> void:
+	if index < 0 or index >= businesses.size() or is_dead:
+		return
+	var b: Dictionary = businesses[index]
+	var price := int(b.invested * BUSINESS_SELL_RATIO)
+	money += price
+	businesses.remove_at(index)
+	message.emit("%s satıldı (+%d)." % [get_business_type(b.type).name, price])
+	_check_title()
+	changed.emit()
+
+
+## İşleri yönet: tüm işletmelerin moralini yükseltir (ilgilenilmezse kâr düşer).
+func action_manage() -> void:
+	if not can_act():
+		return
+	if businesses.is_empty():
+		message.emit("Yönetecek bir işletmesi yok.")
+		return
+	if get_age_years() < 18.0:
+		message.emit("İşletmeleri yetişkinler yönetiyor.")
+		return
+	if person.needs.energy < 20.0:
+		message.emit("İşleri yönetemeyecek kadar yorgun.")
+		return
+	for b in businesses:
+		b.morale = 100.0
+	person.experience += 1.0
+	_add_need("energy", -15.0)
+	_add_need("fun", -5.0)
+	_pass_time(4.0 * 60.0)
+	message.emit("İşletmelerle ilgilendi, çalışanlar motive.")
+
+
+func _collect_business_income() -> int:
+	var total := 0
+	for b in businesses:
+		total += business_income(b)
+		# Reşit değilken işleri vasiler yürütür, moral sabit kalır
+		if get_age_years() >= 18.0:
+			b.morale = maxf(0.0, b.morale - MORALE_DECAY_PER_DAY)
+	money += total
+	return total
+
+
+func get_title() -> String:
+	var n := businesses.size()
+	var v := total_business_value()
+	for t in TITLES:
+		if n >= t[1] and v >= t[2]:
+			return t[0]
+	return ""
+
+
+func get_holding_name() -> String:
+	return "%s Holding" % family_name
+
+
+func _check_title() -> void:
+	var t := get_title()
+	if t == _last_title:
+		return
+	_last_title = t
+	if t == "Holding Sahibi":
+		message.emit("Tebrikler! %s kuruldu!" % get_holding_name())
+	elif t != "":
+		message.emit("Yeni unvan: %s!" % t)
+
+
 func get_job() -> Dictionary:
 	for j in JOBS:
 		if j.id == person.get("job", ""):
@@ -506,6 +696,7 @@ func _die(cause: String) -> void:
 		"generation": generation,
 		"cause": cause,
 		"money": money,
+		"title": get_title(),
 	})
 	died.emit(cause)
 	save_game()
@@ -529,7 +720,10 @@ func continue_with_heir(index: int) -> void:
 	money = share
 	generation += 1
 	_start_life()
-	message.emit("%s mirası devraldı (%d para). Nesil %d başlıyor." % [person.name, share, generation])
+	var biz := ""
+	if not businesses.is_empty():
+		biz = " ve %d işletme" % businesses.size()
+	message.emit("%s mirası devraldı (%d para%s). Nesil %d başlıyor." % [person.name, share, biz, generation])
 
 
 # ---------------------------------------------------------------
@@ -586,6 +780,8 @@ func save_game() -> void:
 		"speed_index": speed_index,
 		"generation": generation,
 		"family_tree": family_tree,
+		"family_name": family_name,
+		"businesses": businesses,
 		"sleeping": sleeping,
 		"is_dead": is_dead,
 	}
@@ -619,6 +815,9 @@ func load_game() -> bool:
 	speed_index = int(data.get("speed_index", 1))
 	generation = int(data.get("generation", 1))
 	family_tree = data.get("family_tree", [])
+	family_name = data.get("family_name", SURNAMES[randi() % SURNAMES.size()])
+	businesses = data.get("businesses", [])
+	_last_title = get_title()
 	sleeping = bool(data.get("sleeping", false))
 	is_dead = bool(data.get("is_dead", false))
 	_last_stage = get_stage().id

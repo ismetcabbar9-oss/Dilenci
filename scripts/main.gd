@@ -230,6 +230,10 @@ func _build_ui() -> void:
 			["İşe git", GameState.action_work],
 			["İş bul", _open_jobs],
 		]],
+		["İşletme", [
+			["İşletmelerim", _open_business],
+			["İşleri yönet", GameState.action_manage],
+		]],
 		["Aile", [
 			["Dışarı çık", GameState.action_socialize],
 			["Buluşma", GameState.action_date],
@@ -245,7 +249,7 @@ func _build_ui() -> void:
 	tab_row.add_theme_constant_override("separation", 6)
 	col.add_child(tab_row)
 	for i in tabs.size():
-		var tb := _button(tabs[i][0], 22)
+		var tb := _button(tabs[i][0], 20)
 		tb.toggle_mode = true
 		tb.custom_minimum_size.y = 56
 		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -357,6 +361,101 @@ func _open_jobs() -> void:
 	w.popup_centered(Vector2i(520, 0))
 
 
+# --- İşletme penceresi ---
+var _biz_box: VBoxContainer
+var _biz_sig := ""
+
+
+func _open_business() -> void:
+	var w := AcceptDialog.new()
+	w.title = "İşletmeler"
+	w.ok_button_text = "Kapat"
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(600, 760)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	w.add_child(scroll)
+	_biz_box = VBoxContainer.new()
+	_biz_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_biz_box.add_theme_constant_override("separation", 8)
+	scroll.add_child(_biz_box)
+	_biz_sig = ""
+	_fill_business()
+	GameState.changed.connect(_fill_business)
+	var close := func():
+		if GameState.changed.is_connected(_fill_business):
+			GameState.changed.disconnect(_fill_business)
+		w.queue_free()
+	w.confirmed.connect(close)
+	w.canceled.connect(close)
+	add_child(w)
+	w.popup_centered()
+
+
+func _fill_business() -> void:
+	if not is_instance_valid(_biz_box):
+		return
+	# Sadece içerik değiştiyse yeniden kur (changed sinyali her karede gelir)
+	var sig := "%d|%d|%d|%s" % [GameState.money, int(GameState.get_age_years()), int(GameState.person.education), JSON.stringify(GameState.businesses)]
+	if sig == _biz_sig:
+		return
+	_biz_sig = sig
+	for c in _biz_box.get_children():
+		c.queue_free()
+	var title: String = GameState.get_title()
+	var head := _label(22)
+	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	head.text = "%s · Unvan: %s\nToplam değer: %d · Para: %d" % [
+		GameState.get_holding_name() if title == "Holding Sahibi" else "%s ailesi" % GameState.family_name,
+		title if title != "" else "yok", GameState.total_business_value(), GameState.money]
+	_biz_box.add_child(head)
+
+	_biz_box.add_child(_section("Sahip olunan işletmeler"))
+	if GameState.businesses.is_empty():
+		var l := _label(20)
+		l.text = "Henüz işletme yok."
+		_biz_box.add_child(l)
+	for i in GameState.businesses.size():
+		var b: Dictionary = GameState.businesses[i]
+		var t: Dictionary = GameState.get_business_type(b.type)
+		var row := HBoxContainer.new()
+		_biz_box.add_child(row)
+		var l := _label(20)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.text = "%s (Sv %d)\nGünlük +%d · Moral %d%%" % [t.name, int(b.level), GameState.business_income(b), int(b.morale)]
+		row.add_child(l)
+		var up := _button("Büyüt\n%d" % GameState.business_upgrade_cost(b) if b.level < GameState.MAX_BUSINESS_LEVEL else "Maks.", 18)
+		up.custom_minimum_size = Vector2(110, 64)
+		up.disabled = b.level >= GameState.MAX_BUSINESS_LEVEL or GameState.money < GameState.business_upgrade_cost(b)
+		up.pressed.connect(GameState.upgrade_business.bind(i))
+		row.add_child(up)
+		var sell := _button("Sat\n+%d" % int(b.invested * GameState.BUSINESS_SELL_RATIO), 18)
+		sell.custom_minimum_size = Vector2(100, 64)
+		sell.pressed.connect(GameState.sell_business.bind(i))
+		row.add_child(sell)
+
+	_biz_box.add_child(_section("Yeni işletme kur"))
+	for t in GameState.BUSINESS_TYPES:
+		var row := HBoxContainer.new()
+		_biz_box.add_child(row)
+		var l := _label(20)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var req: String = GameState.business_requirement_text(t)
+		l.text = "%s — %d para\nGünlük ~%d · %s" % [t.name, t.cost, t.income, req if req != "" else "Kurulabilir"]
+		row.add_child(l)
+		var b := _button("Kur", 20)
+		b.custom_minimum_size = Vector2(100, 64)
+		b.disabled = not GameState.can_open_business(t.id)
+		b.pressed.connect(GameState.open_business.bind(t.id))
+		row.add_child(b)
+
+
+func _section(text: String) -> Label:
+	var l := _label(22)
+	l.text = text
+	l.add_theme_color_override("font_color", Color(1, 0.8, 0.4))
+	return l
+
+
 func _continue_heir(i: int) -> void:
 	death_panel.visible = false
 	GameState.continue_with_heir(i)
@@ -383,15 +482,21 @@ func _refresh_ui() -> void:
 	var p: Dictionary = GameState.person
 	var stage: Dictionary = GameState.get_stage()
 	var status := " (uyuyor)" if GameState.sleeping else ""
+	var biz_line := ""
+	if not GameState.businesses.is_empty():
+		var title: String = GameState.get_title()
+		biz_line = "\n%s · %d işletme · %s" % [
+			GameState.get_holding_name() if title == "Holding Sahibi" else "%s ailesi" % GameState.family_name,
+			GameState.businesses.size(), title]
 	var job: Dictionary = GameState.get_job()
 	var fam := "Bekâr"
 	if GameState.has_partner():
 		fam = "%s: %s (ilişki %d)" % ["Eş" if GameState.is_married() else "Sevgili", p.partner.name, int(p.partner.relation)]
 	fam += " · Çocuk: %d" % p.children.size()
-	info_label.text = "%s, %d yaş · %s%s\nGün %d · %s · Nesil %d\nEğitim %d · Tecrübe %d · İş: %s\n%s" % [
-		p.name, int(GameState.get_age_years()), stage.name, status,
+	info_label.text = "%s %s, %d yaş · %s%s\nGün %d · %s · Nesil %d\nEğitim %d · Tecrübe %d · İş: %s\n%s" % [
+		p.name, GameState.family_name, int(GameState.get_age_years()), stage.name, status,
 		GameState.get_day(), GameState.get_clock_text(), GameState.generation,
-		int(p.education), int(p.experience), job.get("name", "yok"), fam]
+		int(p.education), int(p.experience), job.get("name", "yok"), fam] + biz_line
 	money_label.text = "Para: %d" % GameState.money
 	for key in bars:
 		var v: float = p.needs[key]
