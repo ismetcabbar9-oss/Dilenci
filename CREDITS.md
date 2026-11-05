@@ -26,6 +26,10 @@
 - **Özel ada** — "Low Poly Flying Island" by **medraphc** (https://sketchfab.com/3d-models/49c22c7d4f3249688a000fc526b84a76)
   (Hepsi CC BY 4.0)
 
+## Arayüz
+- **Yazı tipi** — "Nunito" by Vernon Adams, Cyreal, Jacques Le Bailly (SIL Open Font License 1.1)
+- **İkonlar** — "Noto Color Emoji" by Google (Apache License 2.0), PNG olarak dışa aktarıldı
+
 ## Müzik ve ses efektleri (OpenGameArt, CC0 – kamu malı)
 - **Gündüz müzikleri** — "Catmint" ve "Forget-me-not" by **Kistol** (https://opengameart.org/content/catmint, /content/forget-me-not)
 - **Gece müziği** — "Bluebonnet" by **Kistol** (https://opengameart.org/content/bluebonnet)

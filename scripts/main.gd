@@ -18,6 +18,21 @@ var lamp: OmniLight3D
 # UI
 var info_label: Label
 var money_label: Label
+var gem_label: Label
+
+# Buton görünümü: metin -> [renk, ikon]
+var BUTTON_STYLE := {
+	"Ye": [UiStyle.YELLOW, "eat"], "Uyu / Uyan": [UiStyle.BLUE, "sleep"], "Oyna": [UiStyle.GREEN, "play"],
+	"Yıkan": [UiStyle.TEAL, "wash"], "Okul / Üniversite": [UiStyle.BLUE, "school"], "İşe git": [UiStyle.CORAL, "work"],
+	"İş bul": [UiStyle.YELLOW, "jobs"], "Emekli ol": [UiStyle.TEAL, "retire"], "İşletmelerim": [UiStyle.PURPLE, "business"],
+	"İşleri yönet": [UiStyle.GREEN, "manage"], "Ev satın al": [UiStyle.CORAL, "home"], "Dışarı çık": [UiStyle.PINK, "social"],
+	"Buluşma": [UiStyle.CORAL, "date"], "Evlen": [UiStyle.PURPLE, "marry"], "Çocuk sahibi ol": [UiStyle.YELLOW, "baby"],
+	"Lüks varlıklar": [UiStyle.BLUE, "luxury"], "Hayır işleri": [UiStyle.GREEN, "charity"], "Başarımlar": [UiStyle.YELLOW, "trophy"],
+	"Aile ağacı": [UiStyle.TEAL, "tree"], "Mağaza": [UiStyle.PINK, "store"], "Günlük ödül": [UiStyle.YELLOW, "gift"],
+	"Ayarlar": [UiStyle.BLUE, "settings"], "Yeni oyun": [UiStyle.CORAL, "reset"],
+}
+const TAB_ICONS := ["tab_care", "tab_career", "tab_business", "tab_family", "tab_goals", "tab_store"]
+const NEED_ICONS := {"hunger": "hunger", "energy": "energy", "fun": "fun", "hygiene": "hygiene", "health": "health"}
 var msg_label: Label
 var room_label: Label
 var bars := {}
@@ -110,7 +125,7 @@ func _process(delta: float) -> void:
 	if _event_card_timer > 0.0:
 		_event_card_timer -= delta
 		if _event_card_timer <= 0.0 and is_instance_valid(_event_card):
-			_event_card.queue_free()
+			UiStyle.pop_out(_event_card, _event_card.queue_free)
 	if _msg_timer > 0.0:
 		_msg_timer -= delta
 		if _msg_timer <= 0.0:
@@ -304,8 +319,10 @@ func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	_ui_layer = layer
+	get_tree().root.theme = UiStyle.make_theme()
 
 	var root := MarginContainer.new()
+	root.theme = UiStyle.make_theme()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
 		root.add_theme_constant_override("margin_" + side, 20)
@@ -318,7 +335,7 @@ func _build_ui() -> void:
 	# --- Üst panel: bilgi + ihtiyaçlar ---
 	var top := PanelContainer.new()
 	_guide_targets["top"] = top
-	top.add_theme_stylebox_override("panel", _panel_style())
+	top.add_theme_stylebox_override("panel", UiStyle.panel_box())
 	col.add_child(top)
 	var top_col := VBoxContainer.new()
 	top.add_child(top_col)
@@ -329,23 +346,48 @@ func _build_ui() -> void:
 	info_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # Uzun satırlar para yazısına binmesin
 	header.add_child(info_label)
-	money_label = _label(24)
-	money_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	header.add_child(money_label)
+	# Para / elmas rozeti (kabartmalı sarı)
+	var chip := PanelContainer.new()
+	chip.add_theme_stylebox_override("panel", UiStyle.clay_box(UiStyle.YELLOW, 18, 5))
+	chip.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	header.add_child(chip)
+	var chip_col := VBoxContainer.new()
+	chip_col.add_theme_constant_override("separation", 0)
+	chip.add_child(chip_col)
+	for it in [["money", "money"], ["gem", "gem"]]:
+		var r := HBoxContainer.new()
+		chip_col.add_child(r)
+		var ic := TextureRect.new()
+		ic.texture = UiStyle.icon(it[1])
+		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ic.custom_minimum_size = Vector2(30, 30)
+		r.add_child(ic)
+		var l := _label(24)
+		l.add_theme_font_override("font", UiStyle.FONT_BLACK)
+		r.add_child(l)
+		if it[0] == "money":
+			money_label = l
+		else:
+			gem_label = l
 
 	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 12)
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 4)
 	top_col.add_child(grid)
 	for key in GameState.NEED_KEYS:
-		var l := _label(22)
+		var ic := TextureRect.new()
+		ic.texture = UiStyle.icon(NEED_ICONS[key])
+		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ic.custom_minimum_size = Vector2(34, 34)
+		grid.add_child(ic)
+		var l := _label(20)
 		l.text = GameState.NEED_NAMES[key]
-		l.custom_minimum_size.x = 140
+		l.custom_minimum_size.x = 112
 		grid.add_child(l)
-		var bar := ProgressBar.new()
-		bar.max_value = 100
-		bar.show_percentage = false
-		bar.custom_minimum_size = Vector2(0, 26)
+		var bar := ClayBar.new()
 		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		grid.add_child(bar)
@@ -358,9 +400,12 @@ func _build_ui() -> void:
 	top_col.add_child(speed_row)
 	var speed_texts := ["II", "1x", "3x", "10x"]
 	for i in speed_texts.size():
-		var b := _button(speed_texts[i], 22)
+		var b := _button(speed_texts[i], 20)
 		b.toggle_mode = true
-		b.custom_minimum_size = Vector2(80 if i < 3 else 150, 50)
+		b.clay_color = UiStyle.YELLOW
+		b.radius = 14
+		b.depth = 5
+		b.custom_minimum_size = Vector2(76 if i < 3 else 150, 50)
 		b.pressed.connect(_on_speed_pressed.bind(i))
 		speed_row.add_child(b)
 		speed_buttons.append(b)
@@ -377,16 +422,19 @@ func _build_ui() -> void:
 	nav.alignment = BoxContainer.ALIGNMENT_CENTER
 	col.add_child(nav)
 	var prev := _button("<", 26)
+	prev.clay_color = UiStyle.CREAM
 	prev.custom_minimum_size = Vector2(70, 56)
 	prev.pressed.connect(_browse_room.bind(-1))
 	nav.add_child(prev)
 	room_label = _label(22)
 	room_label.custom_minimum_size.x = 380
 	room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	room_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	room_label.add_theme_constant_override("outline_size", 6)
+	room_label.add_theme_color_override("font_color", Color.WHITE)
+	room_label.add_theme_color_override("font_outline_color", UiStyle.TEXT_DARK)
+	room_label.add_theme_constant_override("outline_size", 8)
 	nav.add_child(room_label)
 	var nxt := _button(">", 26)
+	nxt.clay_color = UiStyle.CREAM
 	nxt.custom_minimum_size = Vector2(70, 56)
 	nxt.pressed.connect(_browse_room.bind(1))
 	nav.add_child(nxt)
@@ -394,8 +442,9 @@ func _build_ui() -> void:
 	msg_label = _label(26)
 	msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	msg_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	msg_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	msg_label.add_theme_constant_override("outline_size", 6)
+	msg_label.add_theme_color_override("font_color", Color.WHITE)
+	msg_label.add_theme_color_override("font_outline_color", UiStyle.TEXT_DARK)
+	msg_label.add_theme_constant_override("outline_size", 9)
 	col.add_child(msg_label)
 
 	# --- Alt panel: sekmeli eylemler ---
@@ -444,9 +493,16 @@ func _build_ui() -> void:
 	tab_row.add_theme_constant_override("separation", 6)
 	bottom.add_child(tab_row)
 	for i in tabs.size():
-		var tb := _button(tabs[i][0], 17)
+		var tb := _button(tabs[i][0], 15)
 		tb.toggle_mode = true
-		tb.custom_minimum_size.y = 56
+		tb.clay_color = UiStyle.YELLOW
+		tb.radius = 16
+		tb.depth = 5
+		tb.icon = UiStyle.icon(TAB_ICONS[i])
+		tb.add_theme_constant_override("icon_max_width", 30)
+		tb.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tb.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		tb.custom_minimum_size.y = 74
 		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tb.pressed.connect(_select_tab.bind(i))
 		tab_row.add_child(tb)
@@ -470,7 +526,7 @@ func _build_ui() -> void:
 
 
 func _open_settings() -> void:
-	var w := AcceptDialog.new()
+	var w := ClayDialog.new()
 	w.title = "Ayarlar"
 	w.ok_button_text = "Kapat"
 	var box := VBoxContainer.new()
@@ -498,24 +554,28 @@ func _open_settings() -> void:
 func _select_tab(index: int) -> void:
 	current_tab = index
 	for i in tab_buttons.size():
-		tab_buttons[i].set_pressed_no_signal(i == index)
+		tab_buttons[i].set_pressed_quiet(i == index)
 	for c in actions_grid.get_children():
 		c.queue_free()
 	action_buttons.clear()
+	var i := 0
 	for d in tabs[index][1]:
 		var b := _button(d[0], 24)
-		b.custom_minimum_size = Vector2(0, 80)
+		b.custom_minimum_size = Vector2(0, 84)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(d[1])
 		b.disabled = GameState.is_dead
 		actions_grid.add_child(b)
 		action_buttons.append(b)
+		UiStyle.pop_in(b, 0.04 * i)  # Butonlar sırayla zıplayarak gelir
+		i += 1
 
 
 func _build_death_panel(layer: CanvasLayer) -> void:
 	death_panel = PanelContainer.new()
 	death_panel.set_anchors_preset(Control.PRESET_CENTER)
-	death_panel.add_theme_stylebox_override("panel", _panel_style())
+	death_panel.add_theme_stylebox_override("panel", UiStyle.panel_box())
+	death_panel.theme = UiStyle.make_theme()
 	death_panel.visible = false
 	layer.add_child(death_panel)
 
@@ -559,10 +619,11 @@ func _on_died(_cause: String) -> void:
 	death_panel.visible = true
 	death_panel.reset_size()
 	death_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+	UiStyle.pop_in(death_panel)
 
 
 func _open_jobs() -> void:
-	var w := AcceptDialog.new()
+	var w := ClayDialog.new()
 	w.title = "İş ilanları"
 	w.ok_button_text = "Kapat"
 	var box := VBoxContainer.new()
@@ -595,7 +656,7 @@ var _biz_sig := ""
 
 
 func _open_business() -> void:
-	var w := AcceptDialog.new()
+	var w := ClayDialog.new()
 	w.title = "İşletmeler"
 	w.ok_button_text = "Kapat"
 	var scroll := ScrollContainer.new()
@@ -680,21 +741,31 @@ func _fill_business() -> void:
 
 
 # --- Olaylar ---
-func _event_panel(title: String, text: String, accent: Color) -> Array:
+func _event_panel(title: String, text: String, accent: Color, icon_name: String = "") -> Array:
 	var panel := PanelContainer.new()
-	var st := _panel_style()
-	st.bg_color = Color(0.12, 0.14, 0.22, 0.97)
-	st.border_color = accent
-	st.set_border_width_all(4)
+	panel.theme = UiStyle.make_theme()
+	var st := UiStyle.panel_box()
+	st.border_color = accent.darkened(0.15)
 	panel.add_theme_stylebox_override("panel", st)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
 	panel.add_child(box)
+	var head := HBoxContainer.new()
+	head.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_child(head)
+	if icon_name != "":
+		var ic := TextureRect.new()
+		ic.texture = UiStyle.icon(icon_name)
+		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ic.custom_minimum_size = Vector2(44, 44)
+		head.add_child(ic)
 	var t := _label(30)
 	t.text = title
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	t.add_theme_color_override("font_color", accent)
-	box.add_child(t)
+	t.add_theme_font_override("font", UiStyle.FONT_BLACK)
+	t.add_theme_color_override("font_color", accent.darkened(0.3))
+	head.add_child(t)
 	var body := _label(24)
 	body.text = text
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -708,15 +779,18 @@ func _event_panel(title: String, text: String, accent: Color) -> Array:
 func _show_event_card(ev: Dictionary) -> void:
 	if is_instance_valid(_event_card):
 		_event_card.queue_free()
-	var good: bool = not (ev.id in ["cold", "theft", "crisis"])
-	var parts := _event_panel(ev.title, "%s\n%s" % [ev.text, ev.get("result", "")], Color(0.5, 1.0, 0.6) if good else Color(1.0, 0.5, 0.45))
+	var good: bool = not (ev.id in ["cold", "theft", "crisis", "car_accident"])
+	var icon_name := "trophy" if ev.id == "achievement" else ("clock" if ev.id == "offline" else ("party" if good else "event_bad"))
+	var parts := _event_panel(ev.title, "%s\n%s" % [ev.text, ev.get("result", "")], UiStyle.GREEN if good else UiStyle.CORAL, icon_name)
 	_event_card = parts[0]
 	_ui_layer.add_child(_event_card)
 	_event_card.reset_size()
 	_event_card.position = Vector2((get_viewport().get_visible_rect().size.x - _event_card.size.x) / 2.0, 460)
+	UiStyle.pop_in(_event_card)
+	var card := _event_card
 	_event_card.gui_input.connect(func(e):
-		if e is InputEventMouseButton and e.pressed and is_instance_valid(_event_card):
-			_event_card.queue_free())
+		if e is InputEventMouseButton and e.pressed and is_instance_valid(card):
+			UiStyle.pop_out(card, card.queue_free))
 	_event_card_timer = 4.5
 
 
@@ -725,18 +799,20 @@ func _show_event_choice(ev: Dictionary) -> void:
 	if is_instance_valid(_event_modal):
 		_event_modal.queue_free()
 	_event_modal = ColorRect.new()
-	(_event_modal as ColorRect).color = Color(0, 0, 0, 0.55)
+	(_event_modal as ColorRect).color = Color(0.1, 0.05, 0.02, 0.5)
 	_event_modal.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_ui_layer.add_child(_event_modal)
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_event_modal.add_child(center)
-	var parts := _event_panel(ev.title, ev.text, Color(1.0, 0.8, 0.35))
+	var parts := _event_panel(ev.title, ev.text, UiStyle.YELLOW, "question")
 	center.add_child(parts[0])
+	UiStyle.pop_in(parts[0])
 	var opts: Array = ev.options
 	for i in opts.size():
 		var b := _button(opts[i].label, 24)
-		b.custom_minimum_size.y = 80
+		b.clay_color = [UiStyle.GREEN, UiStyle.CORAL, UiStyle.BLUE][i % 3]
+		b.custom_minimum_size.y = 84
 		b.pressed.connect(_on_event_choice.bind(i))
 		parts[1].add_child(b)
 
@@ -758,7 +834,7 @@ func _on_speed_pressed(i: int) -> void:
 
 ## Hızlı mod: 30 dakika 10x, elmasla veya ödüllü reklamla.
 func _open_boost() -> void:
-	var w := AcceptDialog.new()
+	var w := ClayDialog.new()
 	w.title = "Hızlı mod"
 	w.ok_button_text = "Vazgeç"
 	var box := VBoxContainer.new()
@@ -789,7 +865,7 @@ func _open_boost() -> void:
 # --- Hedefler ---
 ## Kaydırılabilir liste penceresi; rows: [[metin, buton yazısı, etkin mi, callable]]
 func _list_dialog(title: String, header: String, rows: Array) -> void:
-	var w := AcceptDialog.new()
+	var w := ClayDialog.new()
 	w.title = title
 	w.ok_button_text = "Kapat"
 	var scroll := ScrollContainer.new()
@@ -804,7 +880,7 @@ func _list_dialog(title: String, header: String, rows: Array) -> void:
 		var h := _label(20)
 		h.text = header
 		h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		h.add_theme_color_override("font_color", Color(1, 0.8, 0.4))
+		h.add_theme_color_override("font_color", UiStyle.CORAL.darkened(0.25))
 		box.add_child(h)
 	for r in rows:
 		var row := HBoxContainer.new()
@@ -882,7 +958,7 @@ func _confirm_retire() -> void:
 	if GameState.get_age_years() < 60.0:
 		GameState.message.emit("Emekli olmak için en az 60 yaşında olmalı.")
 		return
-	var d := ConfirmationDialog.new()
+	var d := _confirm_dialog()
 	d.dialog_text = "İşi bırakıp emekli olsun mu?\nHer gün %d emekli maaşı alır." % int(int(GameState.get_job().pay) * GameState.PENSION_RATIO)
 	d.ok_button_text = "Emekli ol"
 	d.cancel_button_text = "Vazgeç"
@@ -895,7 +971,7 @@ func _confirm_retire() -> void:
 
 # --- Ev penceresi ---
 func _open_homes() -> void:
-	var w := AcceptDialog.new()
+	var w := ClayDialog.new()
 	w.title = "Evler"
 	w.ok_button_text = "Kapat"
 	var box := VBoxContainer.new()
@@ -931,7 +1007,7 @@ var _store_box: VBoxContainer
 
 
 func _open_store() -> void:
-	var w := AcceptDialog.new()
+	var w := ClayDialog.new()
 	w.title = "Mağaza"
 	w.ok_button_text = "Kapat"
 	var scroll := ScrollContainer.new()
@@ -961,7 +1037,7 @@ func _fill_store() -> void:
 		c.queue_free()
 	var head := _label(26)
 	head.text = "Elmas: %d" % Store.gems
-	head.add_theme_color_override("font_color", Color(0.5, 0.9, 1.0))
+	head.add_theme_color_override("font_color", UiStyle.BLUE.darkened(0.35))
 	_store_box.add_child(head)
 
 	# Günlük ödül
@@ -1008,7 +1084,7 @@ func _fill_store() -> void:
 func _section(text: String) -> Label:
 	var l := _label(22)
 	l.text = text
-	l.add_theme_color_override("font_color", Color(1, 0.8, 0.4))
+	l.add_theme_color_override("font_color", UiStyle.CORAL.darkened(0.25))
 	return l
 
 
@@ -1023,7 +1099,7 @@ func _new_life() -> void:
 
 
 func _confirm_reset() -> void:
-	var d := ConfirmationDialog.new()
+	var d := _confirm_dialog()
 	d.dialog_text = "Her şey silinip yeni bir hayat başlasın mı?"
 	d.ok_button_text = "Evet"
 	d.cancel_button_text = "Vazgeç"
@@ -1053,14 +1129,14 @@ func _refresh_ui() -> void:
 		p.name, GameState.family_name, int(GameState.get_age_years()), stage.name, status,
 		GameState.get_day(), GameState.get_clock_text(), GameState.generation,
 		int(p.education), int(p.experience), job.get("name", "yok"), fam] + biz_line
-	money_label.text = "Para: %d\nElmas: %d" % [GameState.money, Store.gems]
+	money_label.text = _fmt_money(GameState.money)
+	gem_label.text = str(Store.gems)
 	for key in bars:
-		var v: float = p.needs[key]
-		var bar: ProgressBar = bars[key]
-		bar.value = v
-		bar.modulate = Color(1, 0.35, 0.35) if v < 25.0 else (Color(1, 0.85, 0.3) if v < 50.0 else Color(0.5, 1, 0.5))
+		var bar: ClayBar = bars[key]
+		bar.set_target(p.needs[key])
 	for i in speed_buttons.size():
-		speed_buttons[i].set_pressed_no_signal(i == GameState.speed_index)
+		if speed_buttons[i].button_pressed != (i == GameState.speed_index):
+			speed_buttons[i].set_pressed_quiet(i == GameState.speed_index)
 	if speed_buttons.size() > GameState.BOOST_SPEED_INDEX:
 		speed_buttons[GameState.BOOST_SPEED_INDEX].text = ("10x · %d dk" % Store.boost_minutes_left()) if Store.boost_active() else "10x Hızlı"
 	for b in action_buttons:
@@ -1079,17 +1155,19 @@ func _label(font_size: int) -> Label:
 	return l
 
 
-func _button(text: String, font_size: int) -> Button:
-	var b := Button.new()
+func _button(text: String, font_size: int) -> ClayButton:
+	var b := ClayButton.new()
 	b.text = text
 	b.add_theme_font_size_override("font_size", font_size)
+	var st: Array = BUTTON_STYLE.get(text, [UiStyle.BLUE, ""])
+	b.clay_color = st[0]
+	if st[1] != "":
+		b.icon = UiStyle.icon(st[1])
 	b.pressed.connect(Audio.play.bind("click"))
 	return b
 
 
-func _panel_style() -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0.1, 0.12, 0.18, 0.85)
-	s.set_corner_radius_all(16)
-	s.set_content_margin_all(14)
-	return s
+func _confirm_dialog() -> ClayDialog:
+	var d := ClayDialog.new()
+	d.confirm = true
+	return d

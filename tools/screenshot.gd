@@ -141,6 +141,23 @@ func _initialize() -> void:
 		if a == "offline":
 			var gs = root.get_node("GameState")
 			gs._apply_offline(9.0 * 3600.0)
+		if a == "press":  # "Ye" butonuna basılmış an (çökme + ışık halkası)
+			var btn = main.action_buttons[0]
+			btn.button_down.emit()
+			for j in 4:
+				await process_frame
+			await RenderingServer.frame_post_draw
+			root.get_texture().get_image().save_png(out)
+			quit()
+			return
+		if a == "popmid":  # Pencere açılırken (mantar büyümesi ortası)
+			main._open_store()
+			for j in 5:
+				await process_frame
+			await RenderingServer.frame_post_draw
+			root.get_texture().get_image().save_png(out)
+			quit()
+			return
 		if a == "settings":
 			main._select_tab(5)
 			main._open_settings()

@@ -113,6 +113,7 @@ func _show_card(title: String, text: String, target: String, on_ok: Callable, ok
 		_speed_before = GameState.speed_index
 		GameState.set_speed(0)
 	_overlay = Control.new()
+	_overlay.theme = UiStyle.make_theme()
 	_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	layer.add_child(_overlay)
@@ -141,22 +142,23 @@ func _show_card(title: String, text: String, target: String, on_ok: Callable, ok
 		card_y = r.end.y + 20.0 if r.get_center().y < 640.0 else maxf(120.0, r.position.y - 380.0)
 
 	var panel := PanelContainer.new()
-	var ps := StyleBoxFlat.new()
-	ps.bg_color = Color(0.1, 0.16, 0.28, 0.98)
-	ps.border_color = Color(0.45, 0.75, 1.0)
-	ps.set_border_width_all(4)
-	ps.set_corner_radius_all(18)
-	ps.set_content_margin_all(18)
-	panel.add_theme_stylebox_override("panel", ps)
+	panel.add_theme_stylebox_override("panel", UiStyle.panel_box())
 	_overlay.add_child(panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 12)
 	panel.add_child(box)
 	var head := HBoxContainer.new()
 	box.add_child(head)
+	var tip_icon := TextureRect.new()
+	tip_icon.texture = UiStyle.icon("tip")
+	tip_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tip_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tip_icon.custom_minimum_size = Vector2(42, 42)
+	head.add_child(tip_icon)
 	var t: Label = make_label.call(30)
 	t.text = title
-	t.add_theme_color_override("font_color", Color(0.6, 0.85, 1.0))
+	t.add_theme_font_override("font", UiStyle.FONT_BLACK)
+	t.add_theme_color_override("font_color", UiStyle.BLUE.darkened(0.35))
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(t)
 	if counter != "":
@@ -169,11 +171,13 @@ func _show_card(title: String, text: String, target: String, on_ok: Callable, ok
 	body.custom_minimum_size.x = 600
 	box.add_child(body)
 	var b: Button = make_button.call(ok_text, 24)
-	b.custom_minimum_size.y = 70
+	b.clay_color = UiStyle.GREEN
+	b.custom_minimum_size.y = 76
 	box.add_child(b)
 	b.pressed.connect(func():
 		if is_instance_valid(_overlay):
-			_overlay.queue_free()
+			var ov := _overlay
+			UiStyle.pop_out(panel, ov.queue_free)
 		if _speed_before >= 0 and Events.pending.is_empty():
 			GameState.set_speed(_speed_before)
 		_speed_before = -1
@@ -181,6 +185,7 @@ func _show_card(title: String, text: String, target: String, on_ok: Callable, ok
 	panel.reset_size()
 	var vw := layer.get_viewport().get_visible_rect().size.x
 	panel.position = Vector2((vw - panel.size.x) / 2.0, card_y)
+	UiStyle.pop_in(panel)
 
 
 func reset_for_tests() -> void:
